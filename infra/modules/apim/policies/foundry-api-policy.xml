@@ -1,0 +1,43 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Strip the client-supplied key headers so only APIM's managed identity ever reaches the backend. -->
+        <set-header name="api-key" exists-action="delete" />
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com/" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
+        </set-header>
+        <set-backend-service id="ai-foundry-backend-pool" backend-id="ai-foundry-backend-pool" />
+        <!-- Gateway limits kept below the deployed models' combined capacity (chat 1,000,000 + embedding 150,000 = 1,150,000 TPM) as a
+             fair-usage guard, sized to absorb multi-file embedding bursts without hitting the per-deployment ceiling. Hourly quotas = 60×
+             the per-minute rate (sustained-peak-for-an-hour). Adjust to taste relative to the model capacities in foundry.bicep. -->
+        <quota-by-key calls="18000" renewal-period="3600" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+        <rate-limit-by-key calls="300" renewal-period="60" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+        <llm-emit-token-metric>
+            <dimension name="API ID" />
+        </llm-emit-token-metric>
+        <llm-token-limit tokens-per-minute="500000" tokens-consumed-header-name="x-apim-ratelimit-consumed-tokens" remaining-tokens-header-name="x-apim-ratelimit-remaining-tokens" token-quota="30000000" token-quota-period="Hourly" remaining-quota-tokens-header-name="x-apim-ratelimit-remaining-quota-tokens" counter-key="@(context.Subscription?.Key ?? "anonymous")" estimate-prompt-tokens="true" />
+        <!-- Optional gateway-level content-safety hard block (defense-in-depth; the backend already runs an in-app pre-check).
+             To enable, uncomment and first create an APIM backend `content-safety-backend` at the Foundry account ROOT with
+             Managed Identity creds (the AI Gateway "add policy → Content safety" wizard provisions it). Does not block streaming.
+        <llm-content-safety backend-id="content-safety-backend" shield-prompt="true">
+            <categories output-type="EightSeverityLevels">
+                <category name="Hate" threshold="4" />
+                <category name="Sexual" threshold="4" />
+                <category name="Violence" threshold="4" />
+                <category name="SelfHarm" threshold="4" />
+            </categories>
+        </llm-content-safety>
+        -->
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

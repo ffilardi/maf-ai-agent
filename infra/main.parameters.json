@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "${AZURE_ENV_NAME}",
+      "metadata": {
+        "description": "Environment name for the deployment, used to create unique resource names.",
+        "displayName": "Environment Name",
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 10,
+        "isRequired": true
+      }
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}",
+      "metadata": {
+        "description": "Primary location to deploy all resources.'",
+        "displayName": "Location",
+        "type": "string",
+        "isRequired": true
+      }
+    }
+  }
+}

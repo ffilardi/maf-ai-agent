@@ -1,0 +1,8 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Local secrets / environment
+.env
+appsettings.*.local.json

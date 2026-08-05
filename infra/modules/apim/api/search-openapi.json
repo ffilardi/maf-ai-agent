@@ -1,0 +1,252 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Azure AI Search API",
+    "description": "Azure AI Search Query API",
+    "version": "2024-07-01"
+  },
+  "servers": [
+    {
+      "url": "https://search.search.windows.net"
+    }
+  ],
+  "paths": {
+    "/indexes('{indexName}')": {
+      "get": {
+        "operationId": "getIndex",
+        "summary": "Get index (GET)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      },
+      "put": {
+        "operationId": "createOrUpdateIndex",
+        "summary": "Create or update index (PUT)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          },
+          "201": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.index": {
+      "post": {
+        "operationId": "indexDocuments",
+        "summary": "Add, update, or delete documents (POST)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.post.search": {
+      "post": {
+        "operationId": "searchPost",
+        "summary": "Search documents (POST)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.autocomplete": {
+      "get": {
+        "operationId": "autocompleteGet",
+        "summary": "Autocomplete (GET)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.post.autocomplete": {
+      "post": {
+        "operationId": "autocompletePost",
+        "summary": "Autocomplete (POST)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.suggest": {
+      "get": {
+        "operationId": "suggestGet",
+        "summary": "Suggestions (GET)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/indexes('{indexName}')/docs/search.post.suggest": {
+      "post": {
+        "operationId": "suggestPost",
+        "summary": "Suggestions (POST)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "indexName": {
+        "name": "indexName",
+        "in": "path",
+        "required": true,
+        "description": "Name of the target index.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "apiVersion": {
+        "name": "api-version",
+        "in": "query",
+        "required": true,
+        "description": "Azure AI Search data-plane API version. Forwarded to the backend unchanged.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "ok": {
+        "description": "Search response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}

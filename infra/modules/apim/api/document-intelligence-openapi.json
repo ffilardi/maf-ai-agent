@@ -1,0 +1,115 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Azure AI Document Intelligence API",
+    "description": "Azure AI Document Intelligence Layout API",
+    "version": "2024-11-30"
+  },
+  "servers": [
+    {
+      "url": "https://foundry.cognitiveservices.azure.com/documentintelligence"
+    }
+  ],
+  "paths": {
+    "/documentModels/{modelId}:analyze": {
+      "post": {
+        "operationId": "analyzeDocument",
+        "summary": "Analyze document (POST)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/modelId"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          },
+          {
+            "name": "outputContentFormat",
+            "in": "query",
+            "required": false,
+            "description": "Output content format (`markdown` or `text`). Forwarded unchanged.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Analysis accepted; poll Operation-Location for the result."
+          }
+        }
+      }
+    },
+    "/documentModels/{modelId}/analyzeResults/{resultId}": {
+      "get": {
+        "operationId": "getAnalyzeResult",
+        "summary": "Get analyze result (GET)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/modelId"
+          },
+          {
+            "name": "resultId",
+            "in": "path",
+            "required": true,
+            "description": "The async operation result id returned by analyze.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "modelId": {
+        "name": "modelId",
+        "in": "path",
+        "required": true,
+        "description": "Document model id (e.g. `prebuilt-layout`).",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "apiVersion": {
+        "name": "api-version",
+        "in": "query",
+        "required": true,
+        "description": "Document Intelligence data-plane API version. Forwarded to the backend unchanged.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "ok": {
+        "description": "Analyze result.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}

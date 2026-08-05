@@ -1,0 +1,92 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Azure AI Content Safety API",
+    "description": "Azure AI Content Safety text moderation + Prompt Shields, fronted by APIM",
+    "version": "2024-09-01"
+  },
+  "servers": [
+    {
+      "url": "https://foundry.cognitiveservices.azure.com/contentsafety"
+    }
+  ],
+  "paths": {
+    "/text:analyze": {
+      "post": {
+        "operationId": "analyzeText",
+        "summary": "Analyze text for harm categories",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
+    "/text:shieldPrompt": {
+      "post": {
+        "operationId": "shieldPrompt",
+        "summary": "Detect prompt attacks (Prompt Shields)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "apiVersion": {
+        "name": "api-version",
+        "in": "query",
+        "required": true,
+        "description": "Content Safety data-plane API version. Forwarded to the backend unchanged.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "ok": {
+        "description": "Analysis result.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}

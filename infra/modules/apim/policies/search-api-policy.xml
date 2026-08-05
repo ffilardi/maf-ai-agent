@@ -1,0 +1,24 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Strip the client-supplied key headers so only APIM's managed identity ever reaches the backend. -->
+        <set-header name="api-key" exists-action="delete" />
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <authentication-managed-identity resource="https://search.azure.com" output-token-variable-name="msi-access-token" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+        </set-header>
+        <set-backend-service id="ai-search-backend-pool" backend-id="ai-search-backend-pool" />
+        <quota-by-key calls="5000" renewal-period="3600" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+        <rate-limit-by-key calls="20" renewal-period="60" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

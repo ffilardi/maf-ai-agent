@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Dark-first theme tokens. The <html> element carries `dark` (see index.html); these variables feed
+   the Tailwind utility classes used across the chat UI. */
+@theme {
+  --color-bg: #0b0f19;
+  --color-surface: #121826;
+  --color-surface-2: #1b2437;
+  --color-border: #26304a;
+  --color-fg: #e6ebf5;
+  --color-muted: #93a0bd;
+  --color-accent: #6d8bff;
+  --color-accent-fg: #ffffff;
+  --color-user-bubble: #223056;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(109, 139, 255, 0.14), transparent 60%),
+    var(--color-bg);
+  color: var(--color-fg);
+  font-family: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim scrollbar for the conversation pane. */
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+}

@@ -1,0 +1,34 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Strip the client-supplied key headers so only APIM's managed identity ever reaches the backend. -->
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <set-header name="api-key" exists-action="delete" />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com/" output-token-variable-name="msi-access-token" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+        </set-header>
+        <set-backend-service id="ai-document-intelligence-backend-pool" backend-id="ai-document-intelligence-backend-pool" />
+        <quota-by-key calls="1000" renewal-period="3600" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+        <rate-limit-by-key calls="10" renewal-period="60" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <!-- Rewrite the long-running operation's Operation-Location header from the backend host back to the APIM gateway origin so the SDK's poll re-enters this API. -->
+        <set-header name="Operation-Location" exists-action="override">
+            <value>@{
+                var loc = context.Response.Headers.GetValueOrDefault("Operation-Location", "");
+                if (string.IsNullOrEmpty(loc)) { return loc; }
+                var backend = new System.Uri(loc);
+                var gateway = context.Request.OriginalUrl;
+                return gateway.Scheme + "://" + gateway.Host + backend.PathAndQuery;
+            }</value>
+        </set-header>
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

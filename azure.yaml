@@ -1,0 +1,32 @@
+name: maf-ai-agent
+metadata:
+  template: azure-ais@0.0.1-beta
+infra:
+  provider: "bicep"
+# Default `azd up` packages BEFORE provisioning, so on a fresh environment the
+# frontend prebuild hook runs before VITE_AGENT_BACKEND_URL exists and the SPA
+# bakes in its localhost fallback. Provision first so the URL is available.
+workflows:
+  up:
+    steps:
+      - azd: provision
+      - azd: package
+      - azd: deploy --all
+services:
+  agent-frontend:
+    project: src/agent_frontend/
+    language: js
+    host: staticwebapp
+    dist: dist
+    hooks:
+      prebuild:
+        posix:
+          shell: sh
+          run: url="$(azd env get-value VITE_AGENT_BACKEND_URL)" && [ -n "$url" ] || { echo "VITE_AGENT_BACKEND_URL not provisioned yet — run azd provision first" >&2; exit 1; }; printf 'VITE_AGENT_BACKEND_URL=%s\n' "$url" > .env.production.local
+        windows:
+          shell: pwsh
+          run: '$url = (azd env get-value VITE_AGENT_BACKEND_URL); if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($url)) { Write-Error "VITE_AGENT_BACKEND_URL not provisioned yet — run azd provision first"; exit 1 }; Set-Content -Path .env.production.local -Value "VITE_AGENT_BACKEND_URL=$url"'
+  agent-backend:
+    project: src/agent_backend/
+    language: csharp
+    host: appservice

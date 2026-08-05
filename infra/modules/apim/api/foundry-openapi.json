@@ -1,0 +1,177 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Azure AI Foundry OpenAI API",
+    "description": "Azure AI Foundry OpenAI Response API",
+    "version": "2025-01-01-preview"
+  },
+  "servers": [
+    {
+      "url": "https://sample.azure-api.net/openai"
+    }
+  ],
+  "paths": {
+    "/responses": {
+      "post": {
+        "operationId": "Responses_Create",
+        "summary": "Create a response (POST — Responses API)",
+        "description": "Creates a model response from the given input. The Requests API provides a unified interface for chat, tool calling, and reasoning.",
+        "tags": [
+          "Responses"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "required": true,
+            "description": "API version. Forwarded unchanged to the backend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response created successfully."
+          },
+          "default": {
+            "description": "Service unavailable."
+          }
+        }
+      }
+    },
+    "/responses/{response_id}": {
+      "get": {
+        "operationId": "Responses_Get",
+        "summary": "Get a response (GET)",
+        "description": "Retrieves a model response by its ID.",
+        "tags": [
+          "Responses"
+        ],
+        "parameters": [
+          {
+            "name": "response_id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the response to retrieve.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "required": true,
+            "description": "API version. Forwarded unchanged to the backend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response retrieved successfully."
+          },
+          "default": {
+            "description": "Service unavailable."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "Responses_Delete",
+        "summary": "Cancel a response (DELETE)",
+        "description": "Cancels an in-progress streaming response.",
+        "tags": [
+          "Responses"
+        ],
+        "parameters": [
+          {
+            "name": "response_id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the response to cancel.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "required": true,
+            "description": "API version. Forwarded unchanged to the backend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response cancelled successfully."
+          },
+          "default": {
+            "description": "Service unavailable."
+          }
+        }
+      }
+    },
+    "/deployments/{deployment-id}/embeddings": {
+      "post": {
+        "operationId": "Embeddings_Create",
+        "summary": "Create embeddings (POST)",
+        "description": "Creates an embedding vector representing the input text.",
+        "tags": [
+          "Embeddings"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "deployment-id",
+            "in": "path",
+            "required": true,
+            "description": "The deployment id of the embedding model.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "required": true,
+            "description": "API version. Forwarded unchanged to the backend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Embeddings created successfully."
+          },
+          "default": {
+            "description": "Service unavailable."
+          }
+        }
+      }
+    }
+  },
+  "components": {}
+}

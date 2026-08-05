@@ -39,40 +39,40 @@ For local development, extending the agent, and cleanup, see the **[Quickstart g
 ## Architecture
 
 ```mermaid
-%%{ init: { 'theme': 'neutral' } }%%
+---
+config:
+  theme: neutral
+---
 flowchart TB
+    User([User / Browser])
+    SWA["Static Web App<br/>Frontend (Vite + React SPA)"]
 
-    subgraph Architecture[" "]
-    direction TB
-    User([<b>User / Browser</b>])
-    SWA["<b>Static Web App</b><br/><i>Frontend (Vite + React SPA)</i>"]
-
-    subgraph AI["<b>AI Services"]
-        Search["<b>AI Search</b><br/><i>Vector Store + Hybrid Search + Semantic Reranker</i>"]
-        subgraph Foundry["<b>AI Foundry</b>"]
-            GPT["<b>GPT Model</b><br/><i>Chat/Reasoning</i>"]
-            Embed["<b>Embedding Model</b>"]
-            DocIntel["<b>Document Intelligence</b>"]
+    subgraph AI["AI Services"]
+        Search["AI Search<br/>Vector Store + Hybrid Search + Semantic Reranker"]
+        subgraph Foundry["AI Foundry"]
+            GPT["GPT Model<br/>Chat/Reasoning"]
+            Embed["Embedding Model"]
+            DocIntel["Document Intelligence"]
         end
     end
 
-    subgraph Backend["<b>Backend</b>"]
-        Agent["<b>App Service</b><br/><i>MAF Agent Core (.Net 10)</i>"]
-        ToolsProvider["<b>Context Provider: Tools</b><br/><i>TextSearchProvider + SearchChatAttachments</i>"]
-        Queue["<b>Storage Queue</b><br/><i>Ingestion Pipeline</i>"]
-        Ingestion["<b>Fuction App</b><br/><i>Extract → Chunk → Embed → Index</i>"]
-        HistoryProvider["<b>Context Provider: History</b><br/><i>CosmosChatHistoryProvider + Compaction</i>"]
-        APIM["<b>API Management<br/>(AI Gateway)</b><br/><i>Load Balance + Rate/Token Policies</i>"]
-        Cosmos["<b>Cosmos DB</b><br/><i>Conversation History + Config</i>"]
-        Blobs["<b>Storage Blobs</b><br/><i>Attachments Container</i>"]
-        Table["<b>Storage Table</b><br/><i>Ingestion Status</i>"]
+    subgraph Backend["Backend"]
+        Agent["App Service<br/>MAF Agent Core (.NET 10)"]
+        ToolsProvider["Context Provider: Tools<br/>TextSearchProvider + SearchChatAttachments"]
+        Queue["Storage Queue<br/>Ingestion Pipeline"]
+        Ingestion["Ingestion Worker<br/>Extract → Chunk → Embed → Index"]
+        HistoryProvider["Context Provider: History<br/>CosmosChatHistoryProvider + Compaction"]
+        APIM["API Management<br/>(AI Gateway)<br/>Load Balance + Rate/Token Policies"]
+        Cosmos["Cosmos DB<br/>Conversation History + Config"]
+        Blobs["Storage Blobs<br/>Attachments Container"]
+        Table["Storage Table<br/>Ingestion Status"]
     end
 
     User --> SWA
     SWA -- "CORS / stream" --> Agent
 
     Agent --> ToolsProvider
-    Agent -- blob metadata --> Queue
+    Agent -- "blob metadata" --> Queue
     Queue --> Ingestion
     Agent --> HistoryProvider
 
@@ -80,17 +80,15 @@ flowchart TB
     ToolsProvider -- "query" --> APIM
     Ingestion -- "extract / embed / index" --> APIM
 
-    Ingestion -- extracted data --> Blobs
-    Agent -- attachments --> Blobs
-    Agent -- status --> Table
-    HistoryProvider -- history --> Cosmos
+    Ingestion -- "extracted data" --> Blobs
+    Agent -- "attachments" --> Blobs
+    Agent -- "status" --> Table
+    HistoryProvider -- "history" --> Cosmos
 
     APIM --> GPT
     APIM --> Embed
     APIM --> DocIntel
     APIM --> Search
-
-    end
 ```
 
 ## Models

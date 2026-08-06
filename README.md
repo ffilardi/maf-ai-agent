@@ -38,58 +38,20 @@ For local development, extending the agent, and cleanup, see the **[Quickstart g
 
 ## Architecture
 
-```mermaid
----
-config:
-  theme: neutral
----
-flowchart TB
-    User([User / Browser])
-    SWA["Static Web App<br/>Frontend (Vite + React SPA)"]
+The solution is two tiers and one gateway. A Vite + React SPA on Azure Static Web Apps calls the .NET 10 App Service backend directly from the browser over CORS, streaming each turn token-by-token — there is no proxy tier in between.
 
-    subgraph AI["AI Services"]
-        Search["AI Search<br/>Vector Store + Hybrid Search + Semantic Reranker"]
-        subgraph Foundry["AI Foundry"]
-            GPT["GPT Model<br/>Chat/Reasoning"]
-            Embed["Embedding Model"]
-            DocIntel["Document Intelligence"]
-        end
-    end
+The backend owns the Microsoft Agent Framework agent and everything stateful: conversation history in Cosmos DB, uploaded files in Blob Storage, and a background worker that drains a Storage Queue to ingest those files into Azure AI Search for retrieval.
 
-    subgraph Backend["Backend"]
-        Agent["App Service<br/>MAF Agent Core (.NET 10)"]
-        ToolsProvider["Context Provider: Tools<br/>TextSearchProvider + SearchChatAttachments"]
-        Queue["Storage Queue<br/>Ingestion Pipeline"]
-        Ingestion["Ingestion Worker<br/>Extract → Chunk → Embed → Index"]
-        HistoryProvider["Context Provider: History<br/>CosmosChatHistoryProvider + Compaction"]
-        APIM["API Management<br/>(AI Gateway)<br/>Load Balance + Rate/Token Policies"]
-        Cosmos["Cosmos DB<br/>Conversation History + Config"]
-        Blobs["Storage Blobs<br/>Attachments Container"]
-        Table["Storage Table<br/>Ingestion Status"]
-    end
+Every call to an AI service — chat, embeddings, retrieval, Document Intelligence, Content Safety — is routed through API Management acting as an **AI Gateway**. APIM load-balances across model deployments, enforces token and rate quotas, and authenticates to each backing service with its managed identity, so the only credential the application carries is its APIM subscription key.
 
-    User --> SWA
-    SWA -- "CORS / stream" --> Agent
+The whole estate is split across four resource groups per environment (monitoring, common, app, AI) and provisioned by Bicep through `azd`.
 
-    Agent --> ToolsProvider
-    Agent -- "blob metadata" --> Queue
-    Queue --> Ingestion
-    Agent --> HistoryProvider
-
-    Agent -- "chat / reasoning" --> APIM
-    ToolsProvider -- "query" --> APIM
-    Ingestion -- "extract / embed / index" --> APIM
-
-    Ingestion -- "extracted data" --> Blobs
-    Agent -- "attachments" --> Blobs
-    Agent -- "status" --> Table
-    HistoryProvider -- "history" --> Cosmos
-
-    APIM --> GPT
-    APIM --> Embed
-    APIM --> DocIntel
-    APIM --> Search
-```
+<div align="center">
+  <figure>
+    <img src="doc/images/architecture-diagram-dark.png" alt="Architecture Diagram"><br />
+    <figcaption><i>Architecture Diagram</i></figcaption>
+  </figure>
+</div><br />
 
 ## Models
 
@@ -133,7 +95,7 @@ Every chat turn, tool call, and retrieval flows into **Application Insights** vi
 
 <div align="center">
   <figure>
-    <img src="doc/images/AzureInsights-Dashboard-AgentFramework.png" alt="Alternate text"><br />
+    <img src="doc/images/appinsights-dashboard.png" alt="App Insights Grafana Dashboard"><br />
     <figcaption><i>Application Insights → Monitoring → Dashboards with Grafana</i></figcaption>
   </figure>
 </div><br />

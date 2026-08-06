@@ -87,10 +87,13 @@ App Service, which is granted **Storage Blob / Queue / Table Data Contributor** 
 creating the container/queue/table on first use. Locally, `DefaultAzureCredential` falls back to your
 `az login` (running `dotnet run`) or a service principal supplied via `AZURE_*` env vars.
 
-Document Intelligence is fronted by its own APIM API (`infra/modules/apim/api/document-intelligence-api.bicep`,
+Document Intelligence is fronted by its own APIM API (declared as the `apimDocIntelApi` module in
+[`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep) from
+[`infra/modules/apim/api/document-intelligence-openapi.json`](../infra/modules/apim/api/document-intelligence-openapi.json),
 path `documentintelligence`), subscription-key ingress with APIM's managed identity (**Cognitive Services
 User**) as the backend auth — mirroring the AI Search API. The DI analyze call is long-running, so the DI
-policy rewrites the `Operation-Location` header back to the gateway so the SDK polls the result through APIM.
+policy ([`infra/modules/apim/policies/document-intelligence-api-policy.xml`](../infra/modules/apim/policies/document-intelligence-api-policy.xml))
+rewrites the `Operation-Location` header back to the gateway so the SDK polls the result through APIM.
 
 ## The index
 

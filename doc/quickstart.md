@@ -254,7 +254,7 @@ old RAG tool-result dumps then applying a token-budget backstop sized by `MAX_CO
 
 ### Modifying APIM Policies
 
-APIM policies control request routing, authentication, rate limiting, and transformation. The main policy file is located at `infra/modules/apim/policies/aifoundry-api-policy.xml`.
+APIM policies control request routing, authentication, rate limiting, and transformation. The main policy file is located at [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml).
 
 **Key Policy Components:**
 

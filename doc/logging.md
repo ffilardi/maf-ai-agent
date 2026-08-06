@@ -9,7 +9,7 @@ configured on Azure API Management itself. Two layers, one destination:
 
 | Layer | Configured in | Captures | Doc |
 | --- | --- | --- | --- |
-| **APIM gateway** | Bicep API diagnostics | Inbound/outbound gateway requests, LLM message payloads, client IP | [`apim-app-insights.md`](apim-app-insights.md), [`apim-azure-monitor.md`](apim-azure-monitor.md) |
+| **APIM gateway** | Bicep API diagnostics + gateway policy | Inbound/outbound gateway requests, client IP, rate-limit and token-usage metrics | [`apim-app-insights.md`](apim-app-insights.md), [`apim-azure-monitor.md`](apim-azure-monitor.md) |
 | **Backend app** | [`Program.cs`](../src/agent_backend/Program.cs) + `ILogger` call sites | Incoming requests, outgoing dependencies, GenAI agent spans, structured app logs, the RAG retrieval audit trail | *this doc* |
 
 Both export to the same **Application Insights** resource, so a single trace can be followed from the SPA's

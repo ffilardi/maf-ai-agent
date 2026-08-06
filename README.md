@@ -81,7 +81,7 @@ API Management service acts as an AI gateway and intelligent load balancer for A
 | [APIM Load Balancing Examples](doc/load-balancing-examples.md) | Bicep configuration examples for round-robin, weighted, and priority-based load balancing scenarios |
 | [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls |
 | [APIM Application Insights](doc/apim-app-insights.md) | Application Insights integration setup for API-level logging, sampling, and monitoring configuration |
-| [APIM Azure Monitor](doc/apim-azure-monitor.md) | Azure Monitor integration setup for API-level logging, sampling, and monitoring configuration including LLM messages |
+| [APIM Azure Monitor](doc/apim-azure-monitor.md) | Service-level diagnostic settings to Log Analytics, the `enableVerboseLogs` switch, and gateway token metrics |
 
 ### Retrieval-Augmented Generation (RAG)
 

@@ -101,7 +101,7 @@ All services log to Application Insights with structured logging:
    - Check response headers for rate limit information:
      - `x-apim-ratelimit-remaining-tokens` - Tokens left in current minute
      - `x-apim-ratelimit-remaining-quota-tokens` - Tokens left in hourly quota
-   - Consider adjusting policy limits in `aifoundry-api-policy.xml`
+   - Consider adjusting policy limits in [`foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml)
    - Review per-subscription usage in Application Insights
 
 6. **Managed identity authentication failures:**

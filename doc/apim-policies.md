@@ -1,6 +1,6 @@
 # AI Foundry API Policies
 
-The AI Foundry API is secured and optimized through comprehensive APIM policies defined in `infra/modules/apim/policies/aifoundry-api-policy.xml`. These policies implement enterprise-grade security, rate limiting, and monitoring.
+The AI Foundry API is secured and optimized through comprehensive APIM policies defined in [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml). These policies implement enterprise-grade security, rate limiting, and monitoring.
 
 ## Inbound Policies
 
@@ -121,6 +121,6 @@ The APIM diagnostics configuration captures the following headers for analysis:
 
 ## Customizing Policy Limits
 
-To adjust rate limits or quotas, modify `infra/modules/apim/policies/aifoundry-api-policy.xml`:
+To adjust rate limits or quotas, modify [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml):
 
 After modifying the policy, redeploy with `azd up` or `azd deploy` to apply changes.

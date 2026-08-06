@@ -55,11 +55,12 @@ For examples of how to implement each of these load balancing patterns, see [`lo
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enableLoadBalancing` | bool | false | Create the backend pool. Set to `true` for every API in [`apim.bicep`](../infra/modules/apim/apim.bicep) — see the warning under [Policy configuration](#policy-configuration) before turning it off |
+| `enableLoadBalancing` | bool | true | Create the backend pool. Turning it off routes the policy to the first individual backend instead |
 | `backendUrls` | array | [] | Backend URLs; one APIM backend resource is created per entry |
 | `backendResourceIds` | array | [] | Azure resource ids of the backends, used for managed-identity auth (positionally paired with `backendUrls`) |
 | `backendWeights` | array | [] | Weights for weighted load balancing (defaults to 100 each) |
 | `backendPriorities` | array | [] | Priorities for priority-based load balancing (defaults to 1 each) |
+| `policyBackendId` | string | `''` | Overrides the backend the policy routes to. Empty means "derive it" — see [Policy configuration](#policy-configuration) |
 
 ## Usage Examples
 
@@ -163,18 +164,25 @@ weight `100` and priority `1` when those arrays are empty.
 
 ### Policy configuration
 
-Each API's policy selects the backend by hard-coded id, not by a Bicep expression:
+Each API's policy declares its backend as a placeholder rather than a literal id:
 
 ```xml
-<set-backend-service id="ai-foundry-backend-pool" backend-id="ai-foundry-backend-pool" />
+<set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
 ```
 
-> [!WARNING]
-> Because the pool id is written into the policy XML, `enableLoadBalancing: false` would leave the policy
-> pointing at a backend pool that was never created, and requests would fail. To run without a pool you
-> must also change the `backend-id` in the corresponding
-> [`policies/*.xml`](../infra/modules/apim/policies) file to an individual backend such as
-> `ai-foundry-backend-1`.
+The module substitutes it before writing the policy resource, so routing always follows the backends it
+actually created:
+
+```bicep
+var defaultPolicyBackendId = enableLoadBalancing ? apiBackendPoolId : '${apiBackendId}-1'
+var effectivePolicyBackendId = empty(policyBackendId) ? defaultPolicyBackendId : policyBackendId
+var resolvedApiPolicy = replace(apiPolicy, '__BACKEND_ID__', effectivePolicyBackendId)
+```
+
+With `enableLoadBalancing: true` (the default) that resolves to the pool — `ai-foundry-backend-pool` for
+the AI Foundry API. Set it to `false` and the same policy resolves to `ai-foundry-backend-1`, the first
+individual backend, with no edit to the XML. Pass `policyBackendId` explicitly to pin routing to a
+specific backend, e.g. to drain a pool without redeploying the policy by hand.
 
 ### Resource Dependencies
 
@@ -194,7 +202,7 @@ Each API's policy selects the backend by hard-coded id, not by a Bicep expressio
 ### Worth adding when you run more than one backend
 
 - A Log Analytics query grouping `ApiManagementGatewayLogs` by `BackendUrl` to confirm the split matches
-  the configured weights (requires `enableVerboseLogs`, see [`apim-azure-monitor.md`](apim-azure-monitor.md))
+  the configured weights (`enableVerboseLogs` is on by default, see [`apim-azure-monitor.md`](apim-azure-monitor.md))
 - An alert on the failure rate of any single backend, so a degraded region is visible before the pool
   drains capacity into it
 
@@ -270,7 +278,8 @@ circuitBreaker: {
    - Ensure `backendWeights` / `backendPriorities` are the same length as `backendUrls` — the module
      indexes them positionally and a short array will fail the deployment
    - Verify `backendResourceIds` is positionally aligned with `backendUrls`
-   - Check that the `backend-id` in the API policy matches the pool the module created
+   - If you author a new policy XML, remember it must contain the `__BACKEND_ID__` placeholder — a
+     literal backend id is left untouched by the module and will not follow `enableLoadBalancing`
 
 ### Diagnostic Commands
 

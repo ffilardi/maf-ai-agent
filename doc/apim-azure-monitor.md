@@ -50,19 +50,21 @@ monitor module is not deployed, no diagnostic setting is created and APIM emits 
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `enableVerboseLogs` | `false` | Master switch for the `logs` array. When `false` the array is empty and **only metrics** reach Log Analytics |
+| `enableVerboseLogs` | `true` | Master switch for the `logs` array. When `false` the array is empty and **only metrics** reach Log Analytics |
 | `enableLogs` | `true` | Enables the `allLogs` category group — only takes effect when `enableVerboseLogs` is `true` |
 | `enableAuditLogs` | `false` | Enables the `audit` category group — only takes effect when `enableVerboseLogs` is `true` |
 | `enableMetrics` | `true` | Enables the `AllMetrics` category. Not gated by `enableVerboseLogs` |
 
 > [!IMPORTANT]
-> With the shipped defaults, **APIM gateway request logs do not reach Log Analytics** — only platform
-> metrics do. `enableVerboseLogs` is a top-level parameter in [`infra/main.bicep`](../infra/main.bicep)
-> (default `false`) and is threaded to every resource that has diagnostic settings — APIM, the Foundry
-> account, App Service, Cosmos DB, AI Search, Storage and Key Vault. It is one switch for the whole
-> deployment, so enabling it for APIM enables verbose logs everywhere. Set it in
-> [`infra/main.parameters.json`](../infra/main.parameters.json) or via `azd env set`, and expect a
-> corresponding rise in ingestion cost — see [`finops.md`](finops.md).
+> `enableVerboseLogs` is a top-level parameter in [`infra/main.bicep`](../infra/main.bicep), default
+> **`true`**, threaded to every resource that has diagnostic settings — APIM, the Foundry account, App
+> Service, Cosmos DB and AI Search. It is one switch for the whole deployment, so turning it off for APIM
+> turns off verbose logs everywhere. Platform logs are the expensive half of Log Analytics ingestion and
+> the workspace ships with a **1 GB/day cap**
+> ([`loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep), `dailyQuotaGb`), so a
+> busy environment can hit the cap and stop ingesting for the rest of the day. Set the parameter to
+> `false` in [`infra/main.parameters.json`](../infra/main.parameters.json), or raise the cap — see
+> [`finops.md`](finops.md).
 
 Per-request diagnostics do **not** depend on this switch: the Application Insights API diagnostics in
 [`apim-app-insights.md`](apim-app-insights.md) are always on whenever an App Insights logger exists.
@@ -102,7 +104,7 @@ are captured in the Application Insights request diagnostics.
 
 ## Verifying
 
-Once `enableVerboseLogs` is on, gateway requests are queryable in Log Analytics:
+Gateway requests are queryable in Log Analytics (this is what `enableVerboseLogs` turns on):
 
 ```kusto
 ApiManagementGatewayLogs
@@ -111,7 +113,7 @@ ApiManagementGatewayLogs
 | order by count_ desc
 ```
 
-Platform metrics are available without `enableVerboseLogs`:
+Platform metrics are unaffected by `enableVerboseLogs` and are always available:
 
 ```kusto
 AzureMetrics

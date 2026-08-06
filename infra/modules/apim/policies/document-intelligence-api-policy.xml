@@ -8,7 +8,7 @@
         <set-header name="Authorization" exists-action="override">
             <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
         </set-header>
-        <set-backend-service id="ai-document-intelligence-backend-pool" backend-id="ai-document-intelligence-backend-pool" />
+        <set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
         <quota-by-key calls="1000" renewal-period="3600" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
         <rate-limit-by-key calls="10" renewal-period="60" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
     </inbound>

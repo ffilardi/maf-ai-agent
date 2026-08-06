@@ -15,9 +15,10 @@ The non-load-balancing parameters (`apiName`, `apiDisplayName`, `apiDescription`
 `apiPolicy`) are elided as `// ... API definition parameters` for brevity.
 
 > [!IMPORTANT]
-> The module names its pool `{apiName minus "-api"}-backend-pool` — `example-api` below produces
-> `example-backend-pool`. The API's policy XML must select that id explicitly with
-> `<set-backend-service backend-id="example-backend-pool" />`; nothing wires it up automatically.
+> The API's policy XML must declare its backend as the `__BACKEND_ID__` placeholder —
+> `<set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />`. The module substitutes the
+> pool it created (`{apiName minus "-api"}-backend-pool`, so `example-backend-pool` for `example-api`),
+> or the first individual backend when `enableLoadBalancing` is `false`.
 
 ## Basic Configuration (Single Backend)
 
@@ -192,8 +193,7 @@ module apiBackend './resources/api.bicep' = {
 - Monitor backend health through the Azure Portal
 - Use Application Insights for request tracing — see [`apim-app-insights.md`](apim-app-insights.md)
 - Check API Management analytics for load distribution
-- Review `ApiManagementGatewayLogs` for backend failures, once `enableVerboseLogs` is on — see
-  [`apim-azure-monitor.md`](apim-azure-monitor.md)
+- Review `ApiManagementGatewayLogs` for backend failures — see [`apim-azure-monitor.md`](apim-azure-monitor.md)
 
 ## Important Notes
 

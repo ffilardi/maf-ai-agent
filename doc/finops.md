@@ -26,7 +26,7 @@ the Bicep defaults or passing `--parameters` to a manual `az deployment`.
 | Cost visibility | Token & cost showback workbook | [`modules/monitor/resources/workbook.bicep`](../infra/modules/monitor/resources/workbook.bicep) | always deployed |
 | Spend guardrail | Log Analytics daily ingestion cap | [`modules/monitor/resources/loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep) | `dailyQuotaGb = 1` |
 | Spend guardrail | App Insights telemetry sampling | [`modules/monitor/resources/appinsights.bicep`](../infra/modules/monitor/resources/appinsights.bicep) | `samplingPercentage = 100` |
-| Cost optimization | Scoped platform-log ingestion | `enableVerboseLogs` (main → APIM/Cosmos/Foundry/Search) | `false` (metrics-only) |
+| Cost optimization | Scoped platform-log ingestion | `enableVerboseLogs` (main → APIM/Cosmos/Foundry/Search/App Service) | `true` (full logs); set `false` for metrics-only |
 | Right-sizing | Backend App Service Plan SKU | [`modules/app/app.bicep`](../infra/modules/app/app.bicep) | `Basic` / `B1` |
 | Right-sizing | Azure AI Search SKU | [`modules/search/search.bicep`](../infra/modules/search/search.bicep) | `free` (hybrid + semantic ranking) |
 | Right-sizing | Foundry model TPM capacity | [`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) | chat `1000`, embedding `150` |
@@ -89,18 +89,25 @@ telemetry, best for a demo). Lower it (e.g. `50`) to cap telemetry ingestion cos
 ## 3. Diagnostics cost control — `enableVerboseLogs`
 
 Platform **logs** are the expensive part of Log Analytics ingestion; **metrics** are cheap and drive the
-dashboards. The `enableVerboseLogs` flag ([`main.bicep`](../infra/main.bicep), default **`false`**) is threaded to the four
-noisy services — **APIM, Cosmos, Foundry, Search**. When `false`, their diagnostic settings ship
-**metrics only** (`logs: []`); when `true`, the full `allLogs` + `audit` category groups are sent.
+dashboards. The `enableVerboseLogs` flag ([`main.bicep`](../infra/main.bicep), default **`true`**) is threaded to the
+noisy services — **APIM, Cosmos, Foundry, Search, App Service**. When `true`, the full `allLogs` +
+`audit` category groups are sent; when `false`, their diagnostic settings ship **metrics only**
+(`logs: []`).
 
 ```bicep
 logs: enableVerboseLogs ? [ { categoryGroup: 'allLogs', enabled: enableLogs } … ] : []
 ```
 
-Audit logs were already disabled by default, so this is no observability regression out of the box.
+Audit logs stay disabled by default (`enableAuditLogs`), so `true` means `allLogs` only.
 Backend **application** telemetry (including the RAG retrieval audit, see [`logging.md`](logging.md)) flows through
-Application Insights and is **unaffected** by this flag. Flip it to `true` per environment if you need
-platform logs for troubleshooting.
+Application Insights and is **unaffected** by this flag.
+
+This is the **first lever to pull if Log Analytics cost is a concern**: platform logs are on out of the
+box so gateway and backend request logs are there when you need to troubleshoot, but the workspace's
+`dailyQuotaGb = 1` cap means a busy environment can exhaust its daily budget and stop ingesting. Set
+`enableVerboseLogs: false` per environment, or raise `dailyQuotaGb` in
+[`loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep), depending on which you
+value more.
 
 ## 4. Right-sizing levers
 

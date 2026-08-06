@@ -24,13 +24,16 @@ var agentOptions = AgentOptions.FromConfiguration(builder.Configuration);
 builder.Services.AddSingleton(agentOptions);
 
 // App Insights via the Azure Monitor OpenTelemetry distro; wired only when APPLICATIONINSIGHTS_CONNECTION_STRING is present.
-// AddSource/AddMeter pull in MAF's GenAI agent spans (AgentFactory.TelemetrySourceName).
+// AddSource/AddMeter pull in MAF's GenAI agent spans (AgentFactory.TelemetrySourceName) plus the FinOps token counters
+// (TokenUsageTelemetry.MeterName), which land in customMetrics and drive the "Token & Cost Insights" workbook.
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
     builder.Services.AddOpenTelemetry()
         .UseAzureMonitor()
         .WithTracing(tracing => tracing.AddSource(AgentBackend.Services.AgentFactory.TelemetrySourceName))
-        .WithMetrics(metrics => metrics.AddMeter(AgentBackend.Services.AgentFactory.TelemetrySourceName));
+        .WithMetrics(metrics => metrics
+            .AddMeter(AgentBackend.Services.AgentFactory.TelemetrySourceName)
+            .AddMeter(AgentBackend.Services.TokenUsageTelemetry.MeterName));
 }
 
 // CORS for the SPA (browser → backend directly); origins from ALLOWED_ORIGINS, empty list = no cross-origin access.
@@ -70,10 +73,14 @@ if (agentOptions.HasContentSafetyConfig)
     builder.Services.AddSingleton<ContentSafetyService>();
 }
 
+// Per-turn token/cost telemetry; registered unconditionally (the meter is inert without the Azure Monitor exporter).
+builder.Services.AddSingleton<TokenUsageTelemetry>();
+
 builder.Services.AddSingleton<ChatService>(sp => new ChatService(
     sp.GetRequiredService<AIAgent>(),
     agentOptions,
     sp.GetService<ContentSafetyService>(),
+    sp.GetRequiredService<TokenUsageTelemetry>(),
     sp.GetRequiredService<ILogger<ChatService>>()));
 
 // File-attachment ingestion pipeline; registered only when fully configured (else POST /files returns 503).

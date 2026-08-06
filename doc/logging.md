@@ -26,7 +26,9 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
     builder.Services.AddOpenTelemetry()
         .UseAzureMonitor()
         .WithTracing(t => t.AddSource(AgentFactory.TelemetrySourceName))
-        .WithMetrics(m => m.AddMeter(AgentFactory.TelemetrySourceName));
+        .WithMetrics(m => m
+            .AddMeter(AgentFactory.TelemetrySourceName)
+            .AddMeter(TokenUsageTelemetry.MeterName));
 }
 ```
 
@@ -43,6 +45,19 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
 `AddSource`/`AddMeter` pull in the Microsoft Agent Framework's **GenAI spans** — the agent is built with
 `.UseOpenTelemetry(sourceName: AgentFactory.TelemetrySourceName, …)` ([`AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs)), emitting spans for
 LLM calls, tool invocations, and token usage under the source `AgentBackend.Agent`.
+
+### Token/cost metrics
+
+A second meter, `AgentBackend.Tokens` ([`TokenUsageTelemetry.cs`](../src/agent_backend/Services/TokenUsageTelemetry.cs)), records the FinOps view of a turn:
+`agent.tokens.prompt|completion|total|cached|reasoning` and `agent.turns`, tagged **only** with `model`
+and `streaming`. It is called from both `ChatService.AskAsync` and `ChatService.StreamAsync`, and never
+throws — a telemetry failure is logged at Warning and the answer is still served.
+
+`sessionId` is deliberately **not** a metric dimension: it is a UUID, so one time series per conversation
+would explode metric cardinality and cost. It travels on the companion `"Token usage audit"` **trace**
+instead (below), where cardinality is free. The two together are what let the **Token & Cost Insights**
+workbook break tokens down by model *and* rank the heaviest conversations — see
+[`finops.md`](finops.md).
 
 > **Sensitive data is off by default.** `EnableSensitiveData = false` on the GenAI instrumentation means
 > **prompts, responses, and tool arguments/results are *not* written to traces** — spans still carry model
@@ -110,6 +125,7 @@ Every entry below flows to Application Insights as a `trace` with its structured
 | --- | --- | --- | --- |
 | RAG retrieval audit | [`SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) | Information | The per-turn retrieval manifest (above) |
 | RAG failure | [`SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) | Warning | A caught search failure (degrades to ungrounded) — no longer swallowed silently |
+| Token usage audit | [`TokenUsageTelemetry.cs`](../src/agent_backend/Services/TokenUsageTelemetry.cs) | Information | Per-turn `sessionId`, `model`, `streaming` and the prompt/completion/total/cached/reasoning token counts — the high-cardinality half of the cost telemetry |
 | Chat persist failure | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Error | Model answered but the end-of-turn Cosmos history write failed — *the turn was not saved* |
 | Content Safety detection | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | Flagged category severities + prompt-attack flag + mode (`log`/`block`), every mode |
 | Content Safety fail-open | [`ContentSafetyService.cs`](../src/agent_backend/Services/ContentSafetyService.cs) | Warning | A Content Safety API error; the turn is allowed through (fail-open) |

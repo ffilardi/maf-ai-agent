@@ -19,6 +19,8 @@ public sealed class ChatService(
     AgentBackend.Configuration.AgentOptions options,
     // contentSafety is null when Content Safety is disabled (CONTENT_SAFETY_MODE=off); the pre-check is then skipped.
     ContentSafetyService? contentSafety,
+    // FinOps: per-turn token usage → App Insights metrics (by model) + a per-session log line. Never throws.
+    TokenUsageTelemetry tokenTelemetry,
     ILogger<ChatService> logger)
 {
     // Length cap on the per-session system prompt.
@@ -57,6 +59,7 @@ public sealed class ChatService(
 
         var usedTools = ExtractUsedTools(response);
         var tokenUsage = ExtractTokenUsage(response);
+        tokenTelemetry.Record(EffectiveModel(request), request.SessionId, tokenUsage, streaming: false);
 
         return new ChatResponse(request.SessionId, response.Text, usedTools, tokenUsage);
     }
@@ -203,8 +206,11 @@ public sealed class ChatService(
         }
 
         var response = updates.ToAgentResponse();
+        var streamUsage = ExtractTokenUsage(response);
+        tokenTelemetry.Record(EffectiveModel(request), request.SessionId, streamUsage, streaming: true);
+
         yield return new UiStreamPart("message-metadata", MessageMetadata: new MessageMetadata(
-            TokenUsage: ExtractTokenUsage(response),
+            TokenUsage: streamUsage,
             UsedTools: ExtractUsedTools(response),
             SessionId: request.SessionId));
         yield return new UiStreamPart("finish-step");
@@ -246,6 +252,9 @@ public sealed class ChatService(
         }
         return options.Models.Contains(model, StringComparer.OrdinalIgnoreCase) ? model : null;
     }
+
+    // Deployment the turn actually billed against: the allow-listed per-request model, else the agent default. Cost telemetry only.
+    private string? EffectiveModel(ChatRequest request) => ResolveModel(request.Model) ?? options.DefaultModel;
 
     // Assembles the effective per-turn instructions: the per-request/env base prompt (or the built-in default), plus the
     // RAG-only grounding directive when requested, then always the non-overridable SafetyDirective last. Materialised in

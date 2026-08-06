@@ -55,7 +55,7 @@
 Run the two services separately: the backend with the .NET SDK and the frontend with the Vite dev
 server. The SPA calls the backend directly from the browser (CORS) — there is no proxy tier.
 
-Common environment variables (see `src/.env.example` for the full list):
+Common environment variables (see [`src/.env.example`](../src/.env.example) for the full list):
 ```env
 APIM_GATEWAY_ENDPOINT=https://{apim-instance}.azure-api.net
 APIM_SUBSCRIPTION_KEY={your-subscription-key}
@@ -149,7 +149,7 @@ Expected response:
 ### RAG (Azure AI Search) Development
 
 The backend grounds answers using the Agent Framework's `TextSearchProvider`, exposed to the model as
-an on-demand `SearchChatAttachments` tool. Retrieval is implemented in `Services/SearchAdapter.cs`, which queries Azure
+an on-demand `SearchChatAttachments` tool. Retrieval is implemented in [`Services/SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs), which queries Azure
 AI Search **through the APIM gateway** (endpoint = APIM AI Search API base, credential = APIM subscription
 key as the `api-key` header; APIM reaches the search service with its managed identity):
 
@@ -165,7 +165,7 @@ var response = await client.SearchAsync<SearchDocument>(
 // ... project each hit's title/sourceUrl/content into TextSearchResult { SourceName, SourceLink, Text }.
 ```
 
-The provider is wired in `Services/AgentFactory.cs` only when all three `AI_SEARCH_*` settings are
+The provider is wired in [`Services/AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs) only when all three `AI_SEARCH_*` settings are
 present (`HasAiSearchConfig`), so the `SearchChatAttachments` tool is advertised to the model just when it can be
 fulfilled. See the [RAG Guide](./rag.md) for the full retrieval/indexing walkthrough.
 
@@ -197,9 +197,9 @@ infra/
 To add new Azure services:
 
 1. Create or reuse a module under `infra/modules/<service>/`
-2. Reference the module from `infra/main.bicep`
+2. Reference the module from [`infra/main.bicep`](../infra/main.bicep)
 3. Grant RBAC permissions via security modules (`infra/modules/security/`)
-4. Update `main.parameters.json` with any required parameters
+4. Update [`main.parameters.json`](../infra/main.parameters.json) with any required parameters
 5. Add necessary outputs for application configuration
 
 **Example: Adding a new storage service**
@@ -219,7 +219,7 @@ module newStorage './modules/storage/storage.bicep' = {
 ### Adding Agent Tools
 
 To extend agent capabilities with a new tool (function calling), add an `AIFunction` when building the
-agent in `Services/AgentFactory.cs`:
+agent in [`Services/AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs):
 
 1. **Define the tool method:**
 ```csharp
@@ -235,13 +235,13 @@ chatOptions.Tools ??= new List<AITool>();
 chatOptions.Tools.Add(AIFunctionFactory.Create(MyFunction));
 ```
 
-3. **Update agent instructions if needed** (the `AGENT_INSTRUCTIONS` constant in `AgentFactory.cs`) so
+3. **Update agent instructions if needed** (the `AGENT_INSTRUCTIONS` constant in [`AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs)) so
    the model knows when to use the new capability.
 
 ### Customizing Conversation Storage
 
 Conversation memory is provided by the framework's built-in `CosmosChatHistoryProvider`
-(wired in `Services/AgentFactory.cs` via `WithCosmosDBChatHistoryProvider`). It owns its own document
+(wired in [`Services/AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs) via `WithCosmosDBChatHistoryProvider`). It owns its own document
 schema and partitions on `/conversationId`. To customize persistence, adjust the provider configuration
 there, or supply a different `AIContextProvider` implementation.
 
@@ -250,11 +250,11 @@ read at `MAX_HISTORY_MESSAGES` (default 100, via `MaxMessagesToRetrieve`) and di
 default 24h expiry (`MessageTtlSeconds = null`) so transcripts persist indefinitely. On top of that it
 appends a `CompactionProvider` that trims the loaded history in-context before each model call — collapsing
 old RAG tool-result dumps then applying a token-budget backstop sized by `MAX_CONTEXT_WINDOW_TOKENS` −
-`MAX_OUTPUT_TOKENS`. See `overview.md` › *Bounding history* for how the layers interact.
+`MAX_OUTPUT_TOKENS`. See [`overview.md`](overview.md) › *Bounding history* for how the layers interact.
 
 ### Modifying APIM Policies
 
-APIM policies control request routing, authentication, rate limiting, and transformation. The main policy file is located at `infra/modules/apim/policies/aifoundry-api-policy.xml`.
+APIM policies control request routing, authentication, rate limiting, and transformation. The main policy file is located at [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml).
 
 **Key Policy Components:**
 

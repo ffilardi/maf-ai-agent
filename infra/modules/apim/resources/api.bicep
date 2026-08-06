@@ -35,13 +35,16 @@ param backendResourceIds array = []
 param subscriptionRequired bool = true
 
 @description('Distribute requests across multiple backends.')
-param enableLoadBalancing bool = false
+param enableLoadBalancing bool = true
 
 @description('Relative traffic weights per backend for load balancing.')
 param backendWeights array = []
 
 @description('Priority order per backend for failover.')
 param backendPriorities array = []
+
+@description('Backend the API policy routes to, substituted into the policy\'s __BACKEND_ID__ placeholder. Defaults to the load-balanced pool, or the first individual backend when load balancing is off.')
+param policyBackendId string = ''
 
 @description('Name of the Application Insights logger used for diagnostics.')
 param applicationInsightsLoggerName string = ''
@@ -77,6 +80,12 @@ var apiBackendId = replace(apiName, '-api', '-backend')
 var apiBackendPoolId = '${apiBackendId}-pool'
 var apiPolicyFormat = 'rawxml'
 var customHeadersToLog = union(headersToLog, additionalHeadersToLog)
+
+// The policy XML declares its backend as __BACKEND_ID__ so routing follows the backends this module
+// actually creates: the pool when load balancing is on, the first individual backend when it is off.
+var defaultPolicyBackendId = enableLoadBalancing ? apiBackendPoolId : '${apiBackendId}-1'
+var effectivePolicyBackendId = empty(policyBackendId) ? defaultPolicyBackendId : policyBackendId
+var resolvedApiPolicy = replace(apiPolicy, '__BACKEND_ID__', effectivePolicyBackendId)
 
 resource apimService 'Microsoft.ApiManagement/service@2024-05-01' existing = {
   name: apimServiceName
@@ -146,7 +155,7 @@ resource apiPolicyResource 'Microsoft.ApiManagement/service/apis/policies@2024-0
   name: 'policy'
   parent: api
   properties: {
-    value: apiPolicy
+    value: resolvedApiPolicy
     format: apiPolicyFormat
   }
   dependsOn: enableLoadBalancing ? [backendPool] : [backends]

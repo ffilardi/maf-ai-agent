@@ -1,0 +1,53 @@
+flowchart TB
+
+    subgraph Overview[" "]
+    direction TB
+
+        User([User / Browser])
+        SWA["Static Web App<br/>Frontend (Vite + React SPA)"]
+
+        subgraph AI["AI Services"]
+            Search["AI Search<br/>Vector Store + Hybrid Search + Semantic Reranker"]
+            subgraph Foundry["AI Foundry"]
+                GPT["GPT Model<br/>Chat/Reasoning"]
+                Embed["Embedding Model"]
+                DocIntel["Document Intelligence"]
+            end
+        end
+
+        subgraph Backend["Backend"]
+            Agent["App Service<br/>MAF Agent Core (.NET 10)"]
+            ToolsProvider["Context Provider: Tools<br/>TextSearchProvider + SearchChatAttachments"]
+            Queue["Storage Queue<br/>Ingestion Pipeline"]
+            Ingestion["Ingestion Worker<br/>Extract → Chunk → Embed → Index"]
+            HistoryProvider["Context Provider: History<br/>CosmosChatHistoryProvider + Compaction"]
+            APIM["API Management<br/>(AI Gateway)<br/>Load Balance + Rate/Token Policies"]
+            Table["Storage Table<br/>Ingestion Status"]
+            Cosmos["Cosmos DB<br/>Conversation History + Config"]
+            Blobs["Storage Blobs<br/>Attachments Container"]
+        end
+
+        User --> SWA
+        SWA -- "CORS / stream" --> Agent
+
+        Agent --> ToolsProvider
+        Agent -- "blob metadata" --> Queue
+        Queue --> Ingestion
+        Agent --> HistoryProvider
+
+        Agent -- "chat / reasoning" --> APIM
+        ToolsProvider -- "query" --> APIM
+        Ingestion -- "extract / embed / index" --> APIM
+        Agent -- "add" --> Table
+
+        Ingestion -- "extracted data" --> Blobs
+        Agent -- "attachments" --> Blobs
+        Ingestion -- "update" --> Table
+        HistoryProvider -- "history" --> Cosmos
+
+        APIM --> GPT
+        APIM --> Embed
+        APIM --> DocIntel
+        APIM --> Search
+
+    end

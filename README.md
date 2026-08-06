@@ -38,60 +38,20 @@ For local development, extending the agent, and cleanup, see the **[Quickstart g
 
 ## Architecture
 
-```mermaid
-%%{ init: { 'theme': 'neutral' } }%%
-flowchart TB
+The solution is two tiers and one gateway. A Vite + React SPA on Azure Static Web Apps calls the .NET 10 App Service backend directly from the browser over CORS, streaming each turn token-by-token — there is no proxy tier in between.
 
-    subgraph Architecture[" "]
-    direction TB
-    User([<b>User / Browser</b>])
-    SWA["<b>Static Web App</b><br/><i>Frontend (Vite + React SPA)</i>"]
+The backend owns the Microsoft Agent Framework agent and everything stateful: conversation history in Cosmos DB, uploaded files in Blob Storage, and a background worker that drains a Storage Queue to ingest those files into Azure AI Search for retrieval.
 
-    subgraph AI["<b>AI Services"]
-        Search["<b>AI Search</b><br/><i>Vector Store + Hybrid Search + Semantic Reranker</i>"]
-        subgraph Foundry["<b>AI Foundry</b>"]
-            GPT["<b>GPT Model</b><br/><i>Chat/Reasoning</i>"]
-            Embed["<b>Embedding Model</b>"]
-            DocIntel["<b>Document Intelligence</b>"]
-        end
-    end
+Every call to an AI service — chat, embeddings, retrieval, Document Intelligence, Content Safety — is routed through API Management acting as an **AI Gateway**. APIM load-balances across model deployments, enforces token and rate quotas, and authenticates to each backing service with its managed identity, so the only credential the application carries is its APIM subscription key.
 
-    subgraph Backend["<b>Backend</b>"]
-        Agent["<b>App Service</b><br/><i>MAF Agent Core (.Net 10)</i>"]
-        ToolsProvider["<b>Context Provider: Tools</b><br/><i>TextSearchProvider + SearchChatAttachments</i>"]
-        Queue["<b>Storage Queue</b><br/><i>Ingestion Pipeline</i>"]
-        Ingestion["<b>Fuction App</b><br/><i>Extract → Chunk → Embed → Index</i>"]
-        HistoryProvider["<b>Context Provider: History</b><br/><i>CosmosChatHistoryProvider + Compaction</i>"]
-        APIM["<b>API Management<br/>(AI Gateway)</b><br/><i>Load Balance + Rate/Token Policies</i>"]
-        Cosmos["<b>Cosmos DB</b><br/><i>Conversation History + Config</i>"]
-        Blobs["<b>Storage Blobs</b><br/><i>Attachments Container</i>"]
-        Table["<b>Storage Table</b><br/><i>Ingestion Status</i>"]
-    end
+The whole estate is split across four resource groups per environment (monitoring, common, app, AI) and provisioned by Bicep through `azd`.
 
-    User --> SWA
-    SWA -- "CORS / stream" --> Agent
-
-    Agent --> ToolsProvider
-    Agent -- blob metadata --> Queue
-    Queue --> Ingestion
-    Agent --> HistoryProvider
-
-    Agent -- "chat / reasoning" --> APIM
-    ToolsProvider -- "query" --> APIM
-    Ingestion -- "extract / embed / index" --> APIM
-
-    Ingestion -- extracted data --> Blobs
-    Agent -- attachments --> Blobs
-    Agent -- status --> Table
-    HistoryProvider -- history --> Cosmos
-
-    APIM --> GPT
-    APIM --> Embed
-    APIM --> DocIntel
-    APIM --> Search
-
-    end
-```
+<div align="center">
+  <figure>
+    <img src="doc/images/architecture-diagram.png" alt="Architecture Diagram"><br />
+    <figcaption><i>Architecture Diagram</i></figcaption>
+  </figure>
+</div><br />
 
 ## Models
 
@@ -121,7 +81,7 @@ API Management service acts as an AI gateway and intelligent load balancer for A
 | [APIM Load Balancing Examples](doc/load-balancing-examples.md) | Bicep configuration examples for round-robin, weighted, and priority-based load balancing scenarios |
 | [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls |
 | [APIM Application Insights](doc/apim-app-insights.md) | Application Insights integration setup for API-level logging, sampling, and monitoring configuration |
-| [APIM Azure Monitor](doc/apim-azure-monitor.md) | Azure Monitor integration setup for API-level logging, sampling, and monitoring configuration including LLM messages |
+| [APIM Azure Monitor](doc/apim-azure-monitor.md) | Service-level diagnostic settings to Log Analytics, the `enableVerboseLogs` switch, and gateway token metrics |
 
 ### Retrieval-Augmented Generation (RAG)
 
@@ -135,7 +95,7 @@ Every chat turn, tool call, and retrieval flows into **Application Insights** vi
 
 <div align="center">
   <figure>
-    <img src="doc/images/AzureInsights-Dashboard-AgentFramework.png" alt="Alternate text"><br />
+    <img src="doc/images/appinsights-dashboard.png" alt="App Insights Grafana Dashboard"><br />
     <figcaption><i>Application Insights → Monitoring → Dashboards with Grafana</i></figcaption>
   </figure>
 </div><br />

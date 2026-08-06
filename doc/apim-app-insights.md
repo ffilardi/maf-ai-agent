@@ -8,7 +8,7 @@ This document explains how Application Insights diagnostics have been configured
 
 ### Configuration Parameters
 
-The Azure Monitor diagnostics configuration leverages existing shared parameters in the AI Foundry API Bicep template (`infra/modules/apim/api/aifoundry-api.bicep`):
+The Azure Monitor diagnostics configuration leverages existing shared parameters in the shared APIM API module ([`infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep)), which every imported API (AI Foundry, Document Intelligence, Content Safety, AI Search) is deployed from:
 
 ```bicep
 // Shared diagnostics parameters (used by both Application Insights and Azure Monitor)
@@ -24,7 +24,7 @@ param payloadBytesToLog int = 8192
 
 ### API Diagnostics Resource
 
-Added an `apiDiagnostics` resource in `/infra/modules/apim/api/aifoundry-api.bicep` that configures Application Insights logging for the AI Foundry API:
+Added an `apiDiagnostics` resource in [`/infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep) that configures Application Insights logging for each imported API:
 
 ```bicep
 resource apiDiagnostics 'Microsoft.ApiManagement/service/apis/diagnostics@2024-05-01' = if (enableApplicationInsightsDiagnostics && !empty(applicationInsightsLoggerName)) {
@@ -89,26 +89,25 @@ Added the following configurable parameters to the API module:
 
 ### Module Integration
 
-The Application Insights diagnostics configuration is enabled through the AI module (`infra/modules/ai/ai.bicep`):
+The Application Insights diagnostics configuration is enabled through the APIM module ([`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep)), once per imported API:
 
 ```bicep
-module aiFoundryApi '../apim/api/aifoundry-api.bicep' = {
+module apimFoundryApi './resources/api.bicep' = {
   params: {
     // ... existing parameters
-    applicationInsightsLoggerName: applicationInsightsLoggerName
-    enableApplicationInsightsDiagnostics: !empty(applicationInsightsLoggerName)
+    applicationInsightsLoggerName: apimService.outputs.applicationInsightsLoggerName
+    enableApplicationInsightsDiagnostics: !empty(apimService.outputs.applicationInsightsLoggerName)
   }
 }
 ```
 
 To customize the Application Insights diagnostics settings, you can override the shared parameters when calling the module.
 
-Updated the module chain to pass the Application Insights logger name:
+The module chain that passes the Application Insights logger name:
 
-1. **APIM Service** (`/infra/modules/apim/resources/apim-service.bicep`): Added output for the logger name
-2. **APIM Module** (`/infra/modules/apim/apim.bicep`): Pass through the logger name output
-3. **Main Template** (`/infra/main.bicep`): Pass the logger name from APIM to AI module
-4. **AI Module** (`/infra/modules/ai/ai.bicep`): Pass the logger name to the API module
+1. **APIM Service** ([`/infra/modules/apim/resources/service.bicep`](../infra/modules/apim/resources/service.bicep)): Creates the logger and exposes it as the `applicationInsightsLoggerName` output
+2. **APIM Module** ([`/infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep)): Reads that output and passes it to every API module invocation
+3. **API Module** ([`/infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep)): Uses the logger name to build the `apiDiagnostics` resource
 
 ## Features Enabled
 

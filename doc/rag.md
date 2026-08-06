@@ -23,11 +23,11 @@ longer uses Model Context Protocol servers.
 
 ## How it works
 
-1. **Wiring** (`Services/AgentFactory.cs`): when all three `AI_SEARCH_*` settings are present
+1. **Wiring** ([`Services/AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs)): when all three `AI_SEARCH_*` settings are present
    (`AgentOptions.HasAiSearchConfig`), a `TextSearchProvider` is registered on the agent in
    `OnDemandFunctionCalling` mode with the tool name `SearchChatAttachments`. If the settings are absent, no search
    tool is advertised — the agent answers from the model's own knowledge.
-2. **Retrieval** (`Services/SearchAdapter.cs`): the provider calls `SearchAdapter.SearchAsync(query, ct)`,
+2. **Retrieval** ([`Services/SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs)): the provider calls `SearchAdapter.SearchAsync(query, ct)`,
    which runs a hybrid (keyword + vector) query against the index — embedding the query with
    `EmbeddingService`, and filtering to the current conversation via the `sessionId` read off the tool
    invocation's `FunctionInvokingChatClient.CurrentContext.Options.AdditionalProperties` (`ResolveSessionScope`) —
@@ -60,12 +60,12 @@ The `SearchChatAttachments` tool is gated on all three settings being present (o
 | `AI_SEARCH_SUBSCRIPTION_KEY` | APIM subscription key sent as the `api-key` header | Retrieved from Key Vault |
 | `AI_SEARCH_INDEX` | Index name | `agent-index` |
 
-On Azure these are set automatically by `infra/modules/app/app.bicep`. Search traffic goes through the APIM
+On Azure these are set automatically by [`infra/modules/app/app.bicep`](../infra/modules/app/app.bicep). Search traffic goes through the APIM
 gateway (single auth surface, rate limits, App Insights): the backend authenticates to APIM with the
 subscription key, and **APIM** authenticates to the search service with its managed identity — it holds
 **Search Index Data Reader** (query) plus **Search Index Data Contributor** + **Search Service Contributor**
-(the ingestion write path: document push + create-index) (`infra/modules/apim/apim.bicep` →
-`infra/modules/security/search-rbac.bicep`). No search admin key exists anywhere.
+(the ingestion write path: document push + create-index) ([`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep) →
+[`infra/modules/security/search-rbac.bicep`](../infra/modules/security/search-rbac.bicep)). No search admin key exists anywhere.
 
 ### File-ingestion settings
 
@@ -83,21 +83,24 @@ The `POST /files` attachment pipeline needs the settings above **plus** the foll
 
 Storage uses **managed identity**, not an account key: `DefaultAzureCredential` authenticates the backend
 App Service, which is granted **Storage Blob / Queue / Table Data Contributor** on the account
-(`infra/modules/app/app.bicep` → `infra/modules/security/storage-rbac.bicep`) — those data roles also cover
+([`infra/modules/app/app.bicep`](../infra/modules/app/app.bicep) → [`infra/modules/security/storage-rbac.bicep`](../infra/modules/security/storage-rbac.bicep)) — those data roles also cover
 creating the container/queue/table on first use. Locally, `DefaultAzureCredential` falls back to your
 `az login` (running `dotnet run`) or a service principal supplied via `AZURE_*` env vars.
 
-Document Intelligence is fronted by its own APIM API (`infra/modules/apim/api/document-intelligence-api.bicep`,
+Document Intelligence is fronted by its own APIM API (declared as the `apimDocIntelApi` module in
+[`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep) from
+[`infra/modules/apim/api/document-intelligence-openapi.json`](../infra/modules/apim/api/document-intelligence-openapi.json),
 path `documentintelligence`), subscription-key ingress with APIM's managed identity (**Cognitive Services
 User**) as the backend auth — mirroring the AI Search API. The DI analyze call is long-running, so the DI
-policy rewrites the `Operation-Location` header back to the gateway so the SDK polls the result through APIM.
+policy ([`infra/modules/apim/policies/document-intelligence-api-policy.xml`](../infra/modules/apim/policies/document-intelligence-api-policy.xml))
+rewrites the `Operation-Location` header back to the gateway so the SDK polls the result through APIM.
 
 ## The index
 
 > [!IMPORTANT]
 > Azure AI Search indexes are a data-plane object and **cannot be declared in Bicep** — only the search
 > *service* is provisioned by the infrastructure. The index is created by the ingestion code:
-> `SearchIndexer.InitializeAsync` (`Services/SearchIndexer.cs`) issues an idempotent create-or-update once at
+> `SearchIndexer.InitializeAsync` ([`Services/SearchIndexer.cs`](../src/agent_backend/Services/SearchIndexer.cs)) issues an idempotent create-or-update once at
 > startup (via `IngestionInitializer`), provisioning the index with the schema below. Schema changes are
 > additive — a new field or semantic configuration lands on the next boot without a rebuild, though chunks
 > indexed before the change keep their old values until the file is re-ingested.
@@ -125,7 +128,7 @@ used by the retrieval query's semantic re-ranker (below).
 Ingestion is **asynchronous** — the upload returns immediately and the heavy work runs off the request path
 in a background worker, so a slow document doesn't hold an HTTP request open.
 
-**Request path** — `POST /files` (`Endpoints/FilesEndpoints.cs` → `IngestionService.EnqueueAsync`) accepts
+**Request path** — `POST /files` ([`Endpoints/FilesEndpoints.cs`](../src/agent_backend/Endpoints/FilesEndpoints.cs) → `IngestionService.EnqueueAsync`) accepts
 one document plus the `sessionId` and:
 
 1. **Validate** — supported extension (`SupportedFileTypes`) and size (`MAX_UPLOAD_MB`); else 415/413/400.
@@ -157,7 +160,7 @@ backing services except Blob/Queue/Table Storage are reached through the APIM ga
 
 ## The retrieval query
 
-`SearchAdapter.SearchAsync` (`src/agent_backend/Services/SearchAdapter.cs`) runs a **hybrid + semantic
+`SearchAdapter.SearchAsync` ([`src/agent_backend/Services/SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs)) runs a **hybrid + semantic
 re-ranked** query via the `Azure.Search.Documents` SDK (v11.7.0), pointed at the **APIM gateway** endpoint
 with the APIM subscription key as the `api-key` credential: it embeds the query text (`EmbeddingService`) and
 pairs a `VectorizedQuery` over `contentVector` with the keyword search, then sets `QueryType = Semantic` with
@@ -215,7 +218,7 @@ the lookup to the conversation via the `sessionId`-partitioned status row.
   `usedTools` array and can be surfaced in the frontend and Application Insights.
 - **On-demand vs. always-on:** the provider runs in `OnDemandFunctionCalling` mode so the model chooses
   when to retrieve. To ground *every* turn, switch to `TextSearchBehavior.BeforeAIInvoke` in
-  `AgentFactory.cs`.
+  [`AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs).
 - **RAG-only grounding mode:** the SPA's settings panel exposes an "Answer only from attachments" toggle
   (`ChatSettings.ragOnly`) sent per turn as the `ragOnly` request field. When set, `ChatService.ApplyGroundingMode`
   appends `AgentFactory.GroundedOnlyDirective` to the turn's instructions, instructing the model to call

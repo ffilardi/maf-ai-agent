@@ -1,6 +1,6 @@
 # AI Foundry API Policies
 
-The AI Foundry API is secured and optimized through comprehensive APIM policies defined in `infra/modules/apim/policies/aifoundry-api-policy.xml`. These policies implement enterprise-grade security, rate limiting, and monitoring.
+The AI Foundry API is secured and optimized through comprehensive APIM policies defined in [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml). These policies implement enterprise-grade security, rate limiting, and monitoring.
 
 ## Inbound Policies
 
@@ -27,14 +27,15 @@ The AI Foundry API is secured and optimized through comprehensive APIM policies 
 
 **3. Backend Pool Selection**
 ```xml
-<set-backend-service
-    id="aifoundry-pool"
-    backend-id="ai-foundry-backend-pool"
-/>
+<set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
 ```
-- Routes requests to the load-balanced backend pool
-- Pool contains multiple Azure OpenAI model deployment instances
-- Provides automatic failover and distribution
+- Routes requests to the load-balanced backend pool. `__BACKEND_ID__` is a placeholder substituted at
+  deploy time by [`infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep) —
+  it resolves to `ai-foundry-backend-pool` with the default `enableLoadBalancing: true`. See
+  [`load-balancing.md`](load-balancing.md#policy-configuration)
+- The pool holds one backend per `backendUrls` entry — a single Foundry endpoint today, so add entries to
+  spread load across deployments or regions
+- Priority groups provide failover, weights provide distribution
 
 **4. Request Quotas (Hourly)**
 ```xml
@@ -121,6 +122,6 @@ The APIM diagnostics configuration captures the following headers for analysis:
 
 ## Customizing Policy Limits
 
-To adjust rate limits or quotas, modify `infra/modules/apim/policies/aifoundry-api-policy.xml`:
+To adjust rate limits or quotas, modify [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml):
 
 After modifying the policy, redeploy with `azd up` or `azd deploy` to apply changes.

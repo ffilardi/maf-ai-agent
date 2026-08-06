@@ -4,20 +4,20 @@
 
 This document covers the **backend application's** logging and telemetry — what the ASP.NET Core agent
 (`src/agent_backend`) emits, where it goes, and how to query it. It is the counterpart to the **gateway-side**
-diagnostics docs (`apim-app-insights.md`, `apim-azure-monitor.md`), which cover request/response logging
+diagnostics docs ([`apim-app-insights.md`](apim-app-insights.md), [`apim-azure-monitor.md`](apim-azure-monitor.md)), which cover request/response logging
 configured on Azure API Management itself. Two layers, one destination:
 
 | Layer | Configured in | Captures | Doc |
 | --- | --- | --- | --- |
-| **APIM gateway** | Bicep API diagnostics | Inbound/outbound gateway requests, LLM message payloads, client IP | `apim-app-insights.md`, `apim-azure-monitor.md` |
-| **Backend app** | `Program.cs` + `ILogger` call sites | Incoming requests, outgoing dependencies, GenAI agent spans, structured app logs, the RAG retrieval audit trail | *this doc* |
+| **APIM gateway** | Bicep API diagnostics + gateway policy | Inbound/outbound gateway requests, client IP, rate-limit and token-usage metrics | [`apim-app-insights.md`](apim-app-insights.md), [`apim-azure-monitor.md`](apim-azure-monitor.md) |
+| **Backend app** | [`Program.cs`](../src/agent_backend/Program.cs) + `ILogger` call sites | Incoming requests, outgoing dependencies, GenAI agent spans, structured app logs, the RAG retrieval audit trail | *this doc* |
 
 Both export to the same **Application Insights** resource, so a single trace can be followed from the SPA's
 request, through the backend, out to APIM, and back.
 
 ## Telemetry backbone — Azure Monitor OpenTelemetry distro
 
-Telemetry is wired once in `Program.cs`, and only when a connection string is present so local dev without
+Telemetry is wired once in [`Program.cs`](../src/agent_backend/Program.cs), and only when a connection string is present so local dev without
 Application Insights still starts clean:
 
 ```csharp
@@ -41,7 +41,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
 ### GenAI agent spans
 
 `AddSource`/`AddMeter` pull in the Microsoft Agent Framework's **GenAI spans** — the agent is built with
-`.UseOpenTelemetry(sourceName: AgentFactory.TelemetrySourceName, …)` (`AgentFactory.cs`), emitting spans for
+`.UseOpenTelemetry(sourceName: AgentFactory.TelemetrySourceName, …)` ([`AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs)), emitting spans for
 LLM calls, tool invocations, and token usage under the source `AgentBackend.Agent`.
 
 > **Sensitive data is off by default.** `EnableSensitiveData = false` on the GenAI instrumentation means
@@ -52,7 +52,7 @@ LLM calls, tool invocations, and token usage under the source `AgentBackend.Agen
 
 ### Request timing
 
-An `X-Process-Time` middleware (`Program.cs`) stamps each response with total processing time (mirroring the
+An `X-Process-Time` middleware ([`Program.cs`](../src/agent_backend/Program.cs)) stamps each response with total processing time (mirroring the
 Python backend). For `/chat/stream` this fires on first flush, so it measures **time-to-first-byte**, not the
 full stream duration.
 
@@ -108,15 +108,15 @@ Every entry below flows to Application Insights as a `trace` with its structured
 
 | Area | File | Level | What it records |
 | --- | --- | --- | --- |
-| RAG retrieval audit | `SearchAdapter.cs` | Information | The per-turn retrieval manifest (above) |
-| RAG failure | `SearchAdapter.cs` | Warning | A caught search failure (degrades to ungrounded) — no longer swallowed silently |
-| Chat persist failure | `ChatService.cs` | Error | Model answered but the end-of-turn Cosmos history write failed — *the turn was not saved* |
-| Content Safety detection | `ChatService.cs` | Warning | Flagged category severities + prompt-attack flag + mode (`log`/`block`), every mode |
-| Content Safety fail-open | `ContentSafetyService.cs` | Warning | A Content Safety API error; the turn is allowed through (fail-open) |
-| Stream last-resort | `UiMessageStreamResult.cs` | Error | An exception after headers were committed; stream is still terminated with `[DONE]` |
-| Ingestion worker | `QueueIngestionWorker.cs` | Info / Warning / Error | Worker lifecycle, retries, poison-queue moves |
-| Ingestion pipeline | `IngestionService.cs` | Error | Per-step ingestion failures (naming the session/file for manual cleanup) |
-| Ingestion init | `IngestionInitializer.cs`, `SearchIndexer.cs` | Info / Error | Startup resource creation (index, queue, table, container) |
+| RAG retrieval audit | [`SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) | Information | The per-turn retrieval manifest (above) |
+| RAG failure | [`SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) | Warning | A caught search failure (degrades to ungrounded) — no longer swallowed silently |
+| Chat persist failure | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Error | Model answered but the end-of-turn Cosmos history write failed — *the turn was not saved* |
+| Content Safety detection | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | Flagged category severities + prompt-attack flag + mode (`log`/`block`), every mode |
+| Content Safety fail-open | [`ContentSafetyService.cs`](../src/agent_backend/Services/ContentSafetyService.cs) | Warning | A Content Safety API error; the turn is allowed through (fail-open) |
+| Stream last-resort | [`UiMessageStreamResult.cs`](../src/agent_backend/Endpoints/UiMessageStreamResult.cs) | Error | An exception after headers were committed; stream is still terminated with `[DONE]` |
+| Ingestion worker | [`QueueIngestionWorker.cs`](../src/agent_backend/Services/QueueIngestionWorker.cs) | Info / Warning / Error | Worker lifecycle, retries, poison-queue moves |
+| Ingestion pipeline | [`IngestionService.cs`](../src/agent_backend/Services/IngestionService.cs) | Error | Per-step ingestion failures (naming the session/file for manual cleanup) |
+| Ingestion init | [`IngestionInitializer.cs`](../src/agent_backend/Services/IngestionInitializer.cs), [`SearchIndexer.cs`](../src/agent_backend/Services/SearchIndexer.cs) | Info / Error | Startup resource creation (index, queue, table, container) |
 
 ## Error-handling logging (chat streaming path)
 
@@ -166,7 +166,7 @@ errors, and Content Safety detections are all visible in the `dotnet run` output
 ## The Agent Operations workbook
 
 The visual layer over this telemetry is the **Agent Operations** Azure Monitor workbook
-(`infra/modules/monitor/resources/ops-workbook.bicep`, always deployed, wired from `main.bicep`'s
+([`infra/modules/monitor/resources/ops-workbook.bicep`](../infra/modules/monitor/resources/ops-workbook.bicep), always deployed, wired from [`main.bicep`](../infra/main.bicep)'s
 `opsWorkbookName` — open it in the portal under Application Insights → **Workbooks**). It replaced the
 stock `azd` Application Insights *dashboard*, whose canned metric part-types rendered mostly empty for
 this workload (a Linux `.NET` API + a JS-SDK-less SPA): no browser telemetry, no availability tests,
@@ -175,7 +175,7 @@ and organizes it into sections — **request health** (rate, failures, P50/P95, 
 (latency + failures split across the APIM gateway, Cosmos, and AI Search), the **RAG retrieval audit**
 (retrievals over time, top grounding sources, zero-hit turns), **Content Safety & reliability**
 (detections, persist failures, top exceptions), and the **GenAI spans** (LLM + tool operations). Token /
-cost showback lives in the sibling **Token & Cost Insights** workbook instead (see `finops.md`).
+cost showback lives in the sibling **Token & Cost Insights** workbook instead (see [`finops.md`](finops.md)).
 
 > Note on rollout: `azd provision` creates the workbook but does not delete the pre-existing `dash-*`
 > Portal dashboard from older deployments (azd doesn't prune resources dropped from the template) —

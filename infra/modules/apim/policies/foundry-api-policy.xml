@@ -8,7 +8,7 @@
         <set-header name="Authorization" exists-action="override">
             <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
         </set-header>
-        <set-backend-service id="ai-foundry-backend-pool" backend-id="ai-foundry-backend-pool" />
+        <set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
         <!-- Gateway limits kept below the deployed models' combined capacity (chat 1,000,000 + embedding 150,000 = 1,150,000 TPM) as a
              fair-usage guard, sized to absorb multi-file embedding bursts without hitting the per-deployment ceiling. Hourly quotas = 60×
              the per-minute rate (sustained-peak-for-an-hour). Adjust to taste relative to the model capacities in foundry.bicep. -->

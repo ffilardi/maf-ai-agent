@@ -1,15 +1,23 @@
 # API Management Load Balancing Configuration
 
-This enhanced configuration adds load balancing capabilities to the API Management backend using Azure Bicep templates.
+How backend load balancing works in this deployment, and how to add backends to a pool. It is implemented by the shared API module [`infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep), which every API imported into the gateway (AI Foundry, Document Intelligence, Content Safety, AI Search) is deployed from — see the invocations in [`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep).
 
 ## Overview
 
-The load balancing feature allows you to:
+Load balancing is **already enabled** on all four imported APIs — each is deployed with
+`enableLoadBalancing: true` but a single entry in `backendUrls`, i.e. a backend pool of one. This is
+deliberate: the pool exists from day one, so adding capacity is a matter of appending URLs rather than
+restructuring the deployment. Each API points at one regional Foundry or Search endpoint today.
+
+Adding entries to `backendUrls` lets you:
 - Distribute traffic across multiple backend instances
 - Implement blue-green deployments
 - Achieve high availability through redundancy
 - Scale horizontally across multiple regions
 - Configure weighted or priority-based traffic distribution
+
+For Azure OpenAI specifically, this is how you spread load across several Foundry deployments or regions
+to raise the effective TPM ceiling above a single deployment's quota.
 
 ## Features
 
@@ -28,36 +36,44 @@ The load balancing feature allows you to:
    - Higher priority backends are preferred
    - Lower priority backends used only when higher priority ones are unavailable
 
-For examples of how to implement each of these load balancing patterns, please check `doc/load-balancing-examples.md`.
+For examples of how to implement each of these load balancing patterns, see [`load-balancing-examples.md`](load-balancing-examples.md).
 
 ### Backend Pool Management
 
-- Support for up to 30 backends per pool
-- Individual circuit breaker configuration for each backend
-- Dynamic backend health monitoring
-- Automatic failover capabilities
+- APIM supports up to 30 backends per pool
+- Priority groups give failover: traffic only reaches a lower-priority group when every backend in the
+  higher-priority group is unavailable
+- Weights distribute traffic within a priority group
+
+> [!NOTE]
+> Circuit breakers and active health probes are **not** configured by
+> [`infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep) — the backends it
+> creates carry only a URL, a resource id for managed-identity auth, and TLS validation. See
+> [Circuit breakers](#circuit-breakers) below for how to add them.
 
 ## Configuration Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enableLoadBalancing` | bool | false | Enable load balancing across multiple backends |
-| `additionalBackendUrls` | array | [] | Additional backend URLs for load balancing |
-| `additionalBackendResourceIds` | array | [] | Additional backend resource IDs |
-| `backendWeights` | array | [] | Weights for weighted load balancing |
-| `backendPriorities` | array | [] | Priorities for priority-based load balancing |
+| `enableLoadBalancing` | bool | true | Create the backend pool. Turning it off routes the policy to the first individual backend instead |
+| `backendUrls` | array | [] | Backend URLs; one APIM backend resource is created per entry |
+| `backendResourceIds` | array | [] | Azure resource ids of the backends, used for managed-identity auth (positionally paired with `backendUrls`) |
+| `backendWeights` | array | [] | Weights for weighted load balancing (defaults to 100 each) |
+| `backendPriorities` | array | [] | Priorities for priority-based load balancing (defaults to 1 each) |
+| `policyBackendId` | string | `''` | Overrides the backend the policy routes to. Empty means "derive it" — see [Policy configuration](#policy-configuration) |
 
 ## Usage Examples
 
 ### Basic Single Backend (No Load Balancing)
 
 ```bicep
-module webApiBackend '../apim/api/agent-api.bicep' = {
-  name: 'agent-backend-api'
+module apiBackend './resources/api.bicep' = {
+  name: 'example-api'
   params: {
     apimServiceName: 'my-apim-service'
-    backendUrl: 'https://backend1.example.com'
-    backendResourceId: 'resourceId1'
+    // ... API definition parameters
+    backendUrls: ['https://backend1.example.com']
+    backendResourceIds: ['resourceId1']
     enableLoadBalancing: false
   }
 }
@@ -66,21 +82,22 @@ module webApiBackend '../apim/api/agent-api.bicep' = {
 ### Round-Robin Load Balancing
 
 ```bicep
-module webApiBackend '../apim/api/agent-api.bicep' = {
-  name: 'agent-backend-api'
+module apiBackend './resources/api.bicep' = {
+  name: 'example-api'
   params: {
     apimServiceName: 'my-apim-service'
-    backendUrl: 'https://backend1.example.com'
-    backendResourceId: 'resourceId1'
-    enableLoadBalancing: true
-    additionalBackendUrls: [
+    // ... API definition parameters
+    backendUrls: [
+      'https://backend1.example.com'
       'https://backend2.example.com'
       'https://backend3.example.com'
     ]
-    additionalBackendResourceIds: [
+    backendResourceIds: [
+      'resourceId1'
       'resourceId2'
       'resourceId3'
     ]
+    enableLoadBalancing: true
   }
 }
 ```
@@ -88,19 +105,20 @@ module webApiBackend '../apim/api/agent-api.bicep' = {
 ### Weighted Load Balancing (Blue-Green Deployment)
 
 ```bicep
-module webApiBackend '../apim/api/agent-api.bicep' = {
-  name: 'agent-backend-api'
+module apiBackend './resources/api.bicep' = {
+  name: 'example-api'
   params: {
     apimServiceName: 'my-apim-service'
-    backendUrl: 'https://blue-backend.example.com'
-    backendResourceId: 'blueResourceId'
-    enableLoadBalancing: true
-    additionalBackendUrls: [
+    // ... API definition parameters
+    backendUrls: [
+      'https://blue-backend.example.com'
       'https://green-backend.example.com'
     ]
-    additionalBackendResourceIds: [
+    backendResourceIds: [
+      'blueResourceId'
       'greenResourceId'
     ]
+    enableLoadBalancing: true
     backendWeights: [9, 1]  // 90% blue, 10% green
   }
 }
@@ -109,21 +127,22 @@ module webApiBackend '../apim/api/agent-api.bicep' = {
 ### Priority-Based Load Balancing
 
 ```bicep
-module webApiBackend '../apim/api/agent-api.bicep' = {
-  name: 'agent-backend-api'
+module apiBackend './resources/api.bicep' = {
+  name: 'example-api'
   params: {
     apimServiceName: 'my-apim-service'
-    backendUrl: 'https://primary-backend.example.com'
-    backendResourceId: 'primaryResourceId'
-    enableLoadBalancing: true
-    additionalBackendUrls: [
+    // ... API definition parameters
+    backendUrls: [
+      'https://primary-backend.example.com'
       'https://secondary-backend.example.com'
       'https://fallback-backend.example.com'
     ]
-    additionalBackendResourceIds: [
+    backendResourceIds: [
+      'primaryResourceId'
       'secondaryResourceId'
       'fallbackResourceId'
     ]
+    enableLoadBalancing: true
     backendPriorities: [1, 2, 3]  // Primary, Secondary, Fallback
     backendWeights: [1, 1, 1]     // Equal weights within priority groups
   }
@@ -135,47 +154,57 @@ module webApiBackend '../apim/api/agent-api.bicep' = {
 ### Backend Resource Creation
 
 The module creates:
-1. Individual backend resources for each URL when load balancing is enabled
-2. A single backend resource when load balancing is disabled
-3. A backend pool resource that aggregates individual backends
+1. One backend resource per entry in `backendUrls`, always — named `{apiName minus "-api"}-backend-{n}`,
+   e.g. `ai-foundry-backend-1`
+2. A backend pool named `{apiName minus "-api"}-backend-pool`, e.g. `ai-foundry-backend-pool`, but only
+   when `enableLoadBalancing` is `true`
 
-### Policy Configuration
+Weights and priorities are read positionally from `backendWeights` / `backendPriorities`, defaulting to
+weight `100` and priority `1` when those arrays are empty.
 
-The API policy is dynamically configured to use either:
-- The single backend ID when load balancing is disabled
-- The backend pool ID when load balancing is enabled
+### Policy configuration
+
+Each API's policy declares its backend as a placeholder rather than a literal id:
+
+```xml
+<set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
+```
+
+The module substitutes it before writing the policy resource, so routing always follows the backends it
+actually created:
+
+```bicep
+var defaultPolicyBackendId = enableLoadBalancing ? apiBackendPoolId : '${apiBackendId}-1'
+var effectivePolicyBackendId = empty(policyBackendId) ? defaultPolicyBackendId : policyBackendId
+var resolvedApiPolicy = replace(apiPolicy, '__BACKEND_ID__', effectivePolicyBackendId)
+```
+
+With `enableLoadBalancing: true` (the default) that resolves to the pool — `ai-foundry-backend-pool` for
+the AI Foundry API. Set it to `false` and the same policy resolves to `ai-foundry-backend-1`, the first
+individual backend, with no edit to the XML. Pass `policyBackendId` explicitly to pin routing to a
+specific backend, e.g. to drain a pool without redeploying the policy by hand.
 
 ### Resource Dependencies
 
 - Individual backends are created first
 - Backend pool depends on all individual backends
-- API and policy resources depend on the appropriate backend configuration
+- The API and its policy depend on the pool when load balancing is enabled, on the individual backends otherwise
 
 ## Monitoring and Observability
 
-### Built-in Monitoring
+### What this deployment already gives you
 
-- API Management analytics show request distribution
-- Individual backend health status
-- Circuit breaker status and trip events
-- Request/response metrics per backend
+- API Management analytics show request distribution across the pool
+- Per-API Application Insights request diagnostics, including the backend response code and the gateway's
+  rate-limit headers — see [`apim-app-insights.md`](apim-app-insights.md)
+- Token metrics per API id from the `llm-emit-token-metric` policy — see [`apim-azure-monitor.md`](apim-azure-monitor.md)
 
-### Recommended Monitoring
+### Worth adding when you run more than one backend
 
-1. **Application Insights Integration**
-   - Request tracing across backends
-   - Performance metrics
-   - Error tracking
-
-2. **Azure Monitor Logs**
-   - Backend health events
-   - Load balancing decisions
-   - Circuit breaker activities
-
-3. **Custom Dashboards**
-   - Traffic distribution visualization
-   - Backend performance comparison
-   - Failure rate monitoring
+- A Log Analytics query grouping `ApiManagementGatewayLogs` by `BackendUrl` to confirm the split matches
+  the configured weights (`enableVerboseLogs` is on by default, see [`apim-azure-monitor.md`](apim-azure-monitor.md))
+- An alert on the failure rate of any single backend, so a degraded region is visible before the pool
+  drains capacity into it
 
 ## Best Practices
 
@@ -183,7 +212,6 @@ The API policy is dynamically configured to use either:
 
 1. **Development/Testing**
    - Use round-robin for equal load distribution
-   - Enable circuit breakers for resilience testing
 
 2. **Production Deployments**
    - Use weighted balancing for blue-green deployments
@@ -193,12 +221,16 @@ The API policy is dynamically configured to use either:
 3. **Multi-Region Setup**
    - Use priority-based balancing
    - Configure primary and secondary regions
-   - Ensure proper health checks
 
-### Circuit Breaker Configuration
+### Circuit breakers
+
+Not configured today. To add one, extend the `backends` resource loop in
+[`infra/modules/apim/resources/api.bicep`](../infra/modules/apim/resources/api.bicep) with a
+`circuitBreaker` property — APIM trips the backend out of the pool for `tripDuration` once the failure
+condition is met:
 
 ```bicep
-// Example: Add circuit breaker to individual backends
+// Add to the properties of each backend in the loop
 circuitBreaker: {
   rules: [
     {
@@ -234,18 +266,20 @@ circuitBreaker: {
 
 1. **Uneven Load Distribution**
    - Check backend weights configuration
-   - Verify all backends are healthy
-   - Review circuit breaker status
+   - Verify all backends are reachable
+   - Remember distribution is approximate across gateway instances
 
 2. **Backend Unavailability**
-   - Check individual backend health
-   - Review circuit breaker rules
-   - Verify network connectivity
+   - Check the individual backend resources in the portal
+   - Verify network connectivity and that the backend URL is correct
+   - Confirm APIM's managed identity still holds the data-plane role on the target resource
 
 3. **Configuration Errors**
-   - Ensure array lengths match for weights/priorities
-   - Verify backend URLs are accessible
-   - Check resource ID formatting
+   - Ensure `backendWeights` / `backendPriorities` are the same length as `backendUrls` — the module
+     indexes them positionally and a short array will fail the deployment
+   - Verify `backendResourceIds` is positionally aligned with `backendUrls`
+   - If you author a new policy XML, remember it must contain the `__BACKEND_ID__` placeholder — a
+     literal backend id is left untouched by the module and will not follow `enableLoadBalancing`
 
 ### Diagnostic Commands
 
@@ -260,14 +294,17 @@ az apim backend list --service-name <apim-name>
 az apim api policy show --service-name <apim-name> --api-id <api-id>
 ```
 
-## Migration Guide
+## Adding a second backend
 
-### From Single Backend
+The pool already exists, so no restructuring is needed:
 
-1. Update parameters to enable load balancing
-2. Add additional backend URLs and resource IDs
-3. Configure weights or priorities as needed
-4. Deploy and monitor traffic distribution
+1. Append the new endpoint to `backendUrls` and its resource id to `backendResourceIds` in the relevant
+   module call in [`infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep)
+2. Grant APIM's managed identity the same data-plane role on the new resource that
+   [`infra/modules/security/`](../infra/modules/security) grants on the existing one — otherwise the
+   backend authenticates as nobody and every request through it fails
+3. Configure `backendWeights` or `backendPriorities` as needed
+4. `azd provision`, then confirm the distribution matches the weights
 
 ### Rolling Update Process
 
@@ -282,14 +319,12 @@ az apim api policy show --service-name <apim-name> --api-id <api-id>
 
 | Output | Type | Description |
 |--------|------|-------------|
-| `backendId` | string | ID of the active backend (single or pool) |
-| `loadBalancingEnabled` | bool | Whether load balancing is active |
-| `totalBackendsConfigured` | int | Total number of backends configured |
-| `apiPath` | string | API gateway path |
+| `apiPath` | string | Fully qualified API gateway URL (`{gatewayUrl}/{apiPath}`) |
 
 ### Dependencies
 
-- API Management service (existing)
-- Backend resources (App Services, Function Apps, etc.)
-- Optional: Application Insights for monitoring
-- Optional: Key Vault for secrets management
+- API Management service (created by [`infra/modules/apim/resources/service.bicep`](../infra/modules/apim/resources/service.bicep))
+- Backend resources — in this deployment the Azure AI Foundry account and the Azure AI Search service
+- APIM's system-assigned managed identity holding the data-plane role on each backend
+  ([`infra/modules/security/`](../infra/modules/security))
+- Optional: Application Insights, for the per-API request diagnostics

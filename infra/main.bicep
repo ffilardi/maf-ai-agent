@@ -23,8 +23,8 @@ param location string
 ])
 param staticWebAppLocation string = 'westus2'
 
-@description('Ship verbose allLogs platform logs to Log Analytics. False (default) = metrics-only, lower ingestion cost.')
-param enableVerboseLogs bool = false
+@description('Ship verbose allLogs platform logs to Log Analytics. True (default) = full gateway/resource request logs; set false for metrics-only and lower ingestion cost.')
+param enableVerboseLogs bool = true
 
 @description('Owner (team or individual) accountable for this deployment. Used for cost allocation.')
 param owner string = 'unassigned'

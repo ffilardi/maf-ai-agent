@@ -63,9 +63,17 @@ showback/chargeback. Set real values by editing the param defaults in [`main.bic
 [`modules/monitor/resources/workbook.bicep`](../infra/modules/monitor/resources/workbook.bicep) deploys an Azure Monitor **workbook** ("Token & Cost
 Insights") over telemetry the stack already emits — no new data source, only Log Analytics query cost.
 It turns the APIM `llm-emit-token-metric` counter (dimensioned by *API ID*) and the backend's
-`RAG retrieval audit` trace into showback views: **total tokens over time**, **tokens by API**, the
-**prompt-vs-completion-vs-total** split, and **RAG retrievals over time**, all scoped by a time-range
-pill. Multiply the token totals by your model's per-token price for a cost estimate. It is **always
+`agent.tokens.*` counters, `Token usage audit` trace and `RAG retrieval audit` trace into showback views:
+**total tokens over time**, **tokens by API**, the **prompt-vs-completion-vs-total** split, **chat tokens
+by model** (with the cached-share and reasoning-share ratios the gateway metric can't see, plus tokens per
+turn), the **heaviest conversations** (top 20 by tokens), **tokens per conversation/turn**, and **RAG
+retrievals over time**, all scoped by a time-range pill. The last three come from the backend
+([`TokenUsageTelemetry.cs`](../src/agent_backend/Services/TokenUsageTelemetry.cs), see
+[Logging](./logging.md)) and cover **chat turns only** — they read lower than the gateway totals by roughly
+the RAG query-embedding and ingestion spend. Multiply the token totals by your model's per-token price for
+a cost estimate. The gateway tiles filter
+`name !startswith "agent."` so the backend's own `agent.tokens.*` counters are not double-counted
+(KQL `contains` is case-insensitive). It is **always
 deployed** (no switch, wired from [`main.bicep`](../infra/main.bicep)'s `workbookName`) and its KQL targets the classic App
 Insights `customMetrics`/`traces` tables via the component `sourceId` — adjust the metric-name filters if
 your emitted names differ. Its operational sibling — request health, dependencies, RAG audit, Content

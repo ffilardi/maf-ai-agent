@@ -1,5 +1,8 @@
 // Azure Monitor Workbook — token showback from the gateway's `llm-emit-token-metric` (dimensioned by "API ID")
-// plus the backend's RAG audit trace, as tokens-over-time / tokens-by-API / RAG-activity views (KQL over customMetrics/traces).
+// plus the backend's own telemetry: the `agent.tokens.*` counters and the "Token usage audit" trace
+// (`TokenUsageTelemetry.cs`) — chat turns only, but the trace carries the sessionId, which is what makes the
+// per-conversation views possible. Rendered as tokens-over-time / tokens-by-API / per-conversation / RAG-activity
+// views (KQL over customMetrics/traces).
 @description('Azure region for the workbook.')
 param location string = resourceGroup().location
 
@@ -27,6 +30,17 @@ param isLocked bool = false
 @description('Display name shown for the workbook.')
 param displayName string = 'Token & Cost Insights'
 
+// Gateway token metrics only: `contains` is case-insensitive in KQL, so "Token" would otherwise also match the
+// backend's own `agent.tokens.*` counters and double-count them into the gateway tiles.
+var gatewayTokens string = 'customMetrics | where name contains "Token" and name !startswith "agent."'
+
+// The backend's own counters — the other side of the filter above. Chat turns only (no embedding traffic), but they
+// carry the `model` and `streaming` dimensions and the cached/reasoning breakdown the gateway metric never emits.
+var backendTokens string = 'customMetrics | where name startswith "agent."'
+
+// The per-turn cost audit trace emitted by TokenUsageTelemetry; its structured properties land in customDimensions.
+var tokenAudit string = 'traces | where message has "Token usage audit" | extend sessionId = tostring(customDimensions["SessionId"]), model = tostring(customDimensions["Model"]), prompt = tolong(tostring(customDimensions["PromptTokens"])), completion = tolong(tostring(customDimensions["CompletionTokens"])), cached = tolong(tostring(customDimensions["CachedTokens"]))'
+
 var workbookContent = {
   version: version
   isLocked: isLocked
@@ -34,7 +48,7 @@ var workbookContent = {
     {
       type: 1
       content: {
-        json: '## Token & Cost Insights\nToken consumption and RAG activity for showback/chargeback. Tokens come from the APIM `llm-emit-token-metric` policy (dimensioned by API ID); RAG retrievals from the backend audit trace. Use the time range to scope. Multiply tokens by your model\'s per-token price for a cost estimate.'
+        json: '## Token & Cost Insights\nToken consumption and RAG activity for showback/chargeback. Gateway tiles come from the APIM `llm-emit-token-metric` policy (dimensioned by API ID) and cover **every** LLM call, embeddings included; the per-model tile comes from the backend\'s `agent.tokens.*` counters and the per-conversation tiles from its "Token usage audit" trace — both chat turns only, so they read lower than the gateway totals by roughly the embedding spend. RAG retrievals come from the retrieval audit trace. Use the time range to scope, and multiply tokens by your model\'s per-token price for a cost estimate.'
       }
     }
     {
@@ -63,7 +77,7 @@ var workbookContent = {
       type: 3
       content: {
         version: 'KqlItem/1.0'
-        query: 'customMetrics | where name contains "Token" | summarize Tokens = sum(valueSum) by bin(timestamp, 1h) | order by timestamp asc'
+        query: '${gatewayTokens} | summarize Tokens = sum(valueSum) by bin(timestamp, 1h) | order by timestamp asc'
         size: 0
         title: 'Total tokens over time'
         timeContextFromParameter: 'TimeRange'
@@ -76,7 +90,7 @@ var workbookContent = {
       type: 3
       content: {
         version: 'KqlItem/1.0'
-        query: 'customMetrics | where name contains "Token" | extend api = tostring(customDimensions["API ID"]) | summarize Tokens = sum(valueSum) by api | order by Tokens desc'
+        query: '${gatewayTokens} | extend api = tostring(customDimensions["API ID"]) | summarize Tokens = sum(valueSum) by api | order by Tokens desc'
         size: 0
         title: 'Tokens by API'
         timeContextFromParameter: 'TimeRange'
@@ -89,13 +103,52 @@ var workbookContent = {
       type: 3
       content: {
         version: 'KqlItem/1.0'
-        query: 'customMetrics | where name contains "Token" | summarize Tokens = sum(valueSum) by name, bin(timestamp, 1h) | order by timestamp asc'
+        query: '${gatewayTokens} | summarize Tokens = sum(valueSum) by name, bin(timestamp, 1h) | order by timestamp asc'
         size: 0
         title: 'Prompt vs completion vs total tokens'
         timeContextFromParameter: 'TimeRange'
         queryType: 0
         resourceType: 'microsoft.insights/components'
         visualization: 'timechart'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: '${backendTokens} | extend model = tostring(customDimensions["model"]) | summarize Prompt = sumif(valueSum, name == "agent.tokens.prompt"), Cached = sumif(valueSum, name == "agent.tokens.cached"), Completion = sumif(valueSum, name == "agent.tokens.completion"), Reasoning = sumif(valueSum, name == "agent.tokens.reasoning"), Turns = sumif(valueSum, name == "agent.turns") by model | extend Tokens = Prompt + Completion, ["Cached % of prompt"] = round(100.0 * Cached / iff(Prompt == 0, 1.0, Prompt), 1), ["Reasoning % of completion"] = round(100.0 * Reasoning / iff(Completion == 0, 1.0, Completion), 1), ["Tokens per turn"] = round((Prompt + Completion) / iff(Turns == 0, 1.0, Turns)) | order by Tokens desc'
+        size: 0
+        title: 'Chat tokens by model — cached and reasoning split'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'table'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: '${tokenAudit} | summarize Turns = count(), PromptTokens = sum(prompt), CachedTokens = sum(cached), CompletionTokens = sum(completion), Tokens = sum(prompt + completion), Models = make_set(model) by sessionId | top 20 by Tokens desc'
+        size: 0
+        title: 'Heaviest conversations (top 20, by tokens)'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'table'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: '${tokenAudit} | summarize Conversations = dcount(sessionId), Turns = count(), Tokens = sum(prompt + completion) | extend ["Tokens per conversation"] = iff(Conversations == 0, 0.0, todouble(Tokens) / Conversations), ["Tokens per turn"] = iff(Turns == 0, 0.0, todouble(Tokens) / Turns)'
+        size: 0
+        title: 'Unit economics — tokens per conversation and per turn'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'table'
       }
     }
     {

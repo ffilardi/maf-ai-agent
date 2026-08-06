@@ -8,7 +8,7 @@ The agent backend is an ASP.NET Core (.NET 10) minimal API that implements an in
 - **Azure OpenAI via APIM:** Connects to Azure OpenAI models through the API Management gateway for enterprise-grade security and load balancing
 - **Retrieval-Augmented Generation (RAG):** Grounds answers on an Azure AI Search index via the framework's `TextSearchProvider`, exposed to the model as an on-demand `SearchChatAttachments` tool (see the [RAG Guide](./rag.md)). A per-turn **RAG-only toggle** ("Answer only from attachments" in the settings panel, sent as `ragOnly`) restricts answers to retrieved passages with no general-knowledge fallback
 - **Conversation Memory:** Cosmos DB-backed conversation persistence via the built-in `CosmosChatHistoryProvider` for maintaining context across sessions — transcripts persist indefinitely (the provider's 24h TTL is disabled) so users can resume days later, with the per-turn Cosmos read capped by `MAX_HISTORY_MESSAGES`. Only user turns + assistant answers are stored: tool-call/tool-result messages are filtered out before persistence (`StripToolPlumbing`), keeping each turn's write under Cosmos's 2 MB batch limit — the raw tool results are audited to App Insights instead (see [Logging](./logging.md))
-- **Context Compaction:** Keeps long conversations within the model's context window and bounds per-turn prompt cost via a MAF compaction pipeline — collapses in-context RAG tool-result dumps, then applies a token-budget truncation backstop (see `overview.md` › *Bounding history*)
+- **Context Compaction:** Keeps long conversations within the model's context window and bounds per-turn prompt cost via a MAF compaction pipeline — collapses in-context RAG tool-result dumps, then applies a token-budget truncation backstop (see [`overview.md`](overview.md) › *Bounding history*)
 - **Tool Tracking:** Derives the tools used per turn from the response's `FunctionCallContent` (returned as `usedTools`)
 - **Token Usage Reporting:** Captures and reports token consumption metrics from AI model calls
 - **User Context Support:** Optional user name tracking in conversation history
@@ -16,12 +16,12 @@ The agent backend is an ASP.NET Core (.NET 10) minimal API that implements an in
 
 **Key Components:**
 
-- `Program.cs` - Minimal API host, DI wiring, and the `/chat`, `/ping`, `/` endpoints
-- `Services/AgentFactory.cs` - Builds the shared `AIAgent` (Azure OpenAI via APIM + optional Cosmos history + optional AI Search `TextSearchProvider`)
-- `Services/ChatService.cs` - Runs the agent per request, maps token usage and `usedTools`, and translates provider errors to HTTP status codes
-- `Services/SearchAdapter.cs` - Azure AI Search retrieval backend for the RAG `SearchChatAttachments` tool
-- `Configuration/AgentOptions.cs` - Strongly-typed environment configuration with `HasApimConfig`/`HasCosmosConfig`/`HasAiSearchConfig` guards
-- `Models/ChatModels.cs` - `ChatRequest`/`ChatResponse`/`TokenUsage` records with pinned JSON wire names
+- [`Program.cs`](../src/agent_backend/Program.cs) - Minimal API host, DI wiring, and the `/chat`, `/ping`, `/` endpoints
+- [`Services/AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs) - Builds the shared `AIAgent` (Azure OpenAI via APIM + optional Cosmos history + optional AI Search `TextSearchProvider`)
+- [`Services/ChatService.cs`](../src/agent_backend/Services/ChatService.cs) - Runs the agent per request, maps token usage and `usedTools`, and translates provider errors to HTTP status codes
+- [`Services/SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) - Azure AI Search retrieval backend for the RAG `SearchChatAttachments` tool
+- [`Configuration/AgentOptions.cs`](../src/agent_backend/Configuration/AgentOptions.cs) - Strongly-typed environment configuration with `HasApimConfig`/`HasCosmosConfig`/`HasAiSearchConfig` guards
+- [`Models/ChatModels.cs`](../src/agent_backend/Models/ChatModels.cs) - `ChatRequest`/`ChatResponse`/`TokenUsage` records with pinned JSON wire names
 
 ## AI Agent Frontend
 
@@ -35,10 +35,10 @@ The agent frontend is a Vite + React (TypeScript) single-page app providing a us
 
 **Key Files:**
 
-- `src/components/Chat.tsx` - `useChat` wiring + custom transport (`{sessionId, chatInput, userName}` contract)
+- [`src/components/Chat.tsx`](../src/agent_frontend/src/components/Chat.tsx) - `useChat` wiring + custom transport (`{sessionId, chatInput, userName}` contract)
 - `src/components/ai-elements/*` - Conversation / Message / Response / PromptInput (AI Elements-shaped)
-- `src/lib/backend.ts`, `src/lib/session.ts` - backend URL/types and the persisted conversation id
-- `public/staticwebapp.config.json` - SPA fallback routing for Azure Static Web Apps
+- [`src/lib/backend.ts`](../src/agent_frontend/src/lib/backend.ts), [`src/lib/session.ts`](../src/agent_frontend/src/lib/session.ts) - backend URL/types and the persisted conversation id
+- [`public/staticwebapp.config.json`](../src/agent_frontend/public/staticwebapp.config.json) - SPA fallback routing for Azure Static Web Apps
 
 ## Azure Infrastructure Services
 

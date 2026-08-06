@@ -28,7 +28,7 @@ The load balancing feature allows you to:
    - Higher priority backends are preferred
    - Lower priority backends used only when higher priority ones are unavailable
 
-For examples of how to implement each of these load balancing patterns, please check `doc/load-balancing-examples.md`.
+For examples of how to implement each of these load balancing patterns, please check [`doc/load-balancing-examples.md`](load-balancing-examples.md).
 
 ### Backend Pool Management
 

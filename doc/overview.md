@@ -79,7 +79,7 @@ All endpoints return **503** when their required configuration is absent — the
 
 ## Dependency Injection Summary
 
-Every service is registered as a **singleton** in `Program.cs`. Services are resolved lazily via `IServiceProvider` from endpoint handlers (not as constructor parameters) so that config-guard failures return **503** instead of DI-time 500.
+Every service is registered as a **singleton** in [`Program.cs`](../src/agent_backend/Program.cs). Services are resolved lazily via `IServiceProvider` from endpoint handlers (not as constructor parameters) so that config-guard failures return **503** instead of DI-time 500.
 
 | Service | Registered When | Lifespan | Notes |
 | --- | --- | --- | --- |
@@ -155,7 +155,7 @@ QueueIngestionWorker (BackgroundService)
 | **Server-side conversation history** | Cosmos-owned; SPA sends only `{sessionId, chatInput}` per turn — not the full message array |
 | **Responses API (not Chat Completions)** | Only Azure surface that returns reasoning summaries; `store=false` to keep Cosmos in charge of history |
 | **History bounded, TTL disabled** | Cap Cosmos reads (`MaxMessagesToRetrieve`), keep transcripts forever (`MessageTtlSeconds=null`), and compact in-context (`ToolResultCompactionStrategy` → `ContextWindowCompactionStrategy`) — see the history section below |
-| **Tool results not persisted** | Only user turns + assistant answers reach Cosmos (`AgentFactory.StripToolPlumbing`); raw RAG tool results are audited to App Insights instead — keeps each turn's transactional-batch write under Cosmos's 2 MB limit (see the history section + `logging.md`) |
+| **Tool results not persisted** | Only user turns + assistant answers reach Cosmos (`AgentFactory.StripToolPlumbing`); raw RAG tool results are audited to App Insights instead — keeps each turn's transactional-batch write under Cosmos's 2 MB limit (see the history section + [`logging.md`](logging.md)) |
 | **APIM as single gateway** | All LLM/Search/DI traffic routes through APIM — load balancing, rate limiting, token management, managed-identity auth |
 | **Managed identity for storage** | No account keys anywhere; App Service MI + `DefaultAzureCredential` grants Storage Blob/Queue/Table Data Contributor |
 | **CORS for direct SPA → backend** | No proxy tier; SPA calls App Service directly (CORS-gated by `ALLOWED_ORIGINS` from Static Web App hostname) |
@@ -210,7 +210,7 @@ Owning history means owning its cost. Three knobs, set in `AgentFactory.Create`,
 | `CosmosChatHistoryProvider.MessageTtlSeconds` | Cosmos storage | `86400` (24h) | `null` (**disabled**) | Transcripts persist indefinitely so users can resume a conversation days later. |
 | `CompactionProvider` (an `AIContextProvider`) | In-context | none | pipeline (below) | Reduces the *loaded* message set before each model call to bound the context window and per-turn prompt cost. |
 
-A **fourth mechanism sits upstream of all three: tool plumbing is never persisted.** Tool-call/tool-result messages are filtered out before they reach Cosmos (`AgentFactory.StripToolPlumbing`, wired as the provider's `storeInputResponseMessageFilter`), so a stored transcript is only user turns + assistant answers. This keeps each turn's transactional-batch write under Cosmos's 2 MB limit (an oversized RAG dump was the original `BadRequest` failure) *and* means the history loaded from Cosmos on later turns already excludes old tool dumps. Consequently `ToolResultCompactionStrategy` below now mainly bounds *within-turn* tool bloat (many tool calls in one turn) rather than cross-turn dumps, and acts as a backstop. The raw tool results are audited to App Insights instead (see `logging.md`).
+A **fourth mechanism sits upstream of all three: tool plumbing is never persisted.** Tool-call/tool-result messages are filtered out before they reach Cosmos (`AgentFactory.StripToolPlumbing`, wired as the provider's `storeInputResponseMessageFilter`), so a stored transcript is only user turns + assistant answers. This keeps each turn's transactional-batch write under Cosmos's 2 MB limit (an oversized RAG dump was the original `BadRequest` failure) *and* means the history loaded from Cosmos on later turns already excludes old tool dumps. Consequently `ToolResultCompactionStrategy` below now mainly bounds *within-turn* tool bloat (many tool calls in one turn) rather than cross-turn dumps, and acts as a backstop. The raw tool results are audited to App Insights instead (see [`logging.md`](logging.md)).
 
 The compaction pipeline (`PipelineCompactionStrategy`, executed in order):
 
@@ -223,12 +223,12 @@ Key ordering insight: **the cap bounds what Cosmos *reads*; compaction bounds wh
 
 | Doc | Topic |
 | --- | --- |
-| `quickstart.md` | Provisioning, local dev, extending the agent |
-| `rag.md` | Azure AI Search RAG — search adapter, indexing pipeline |
-| `logging.md` | Backend logging & telemetry — the streaming/persist error handling and the RAG retrieval audit trail |
-| `features.md` | Feature overview |
-| `guidance.md` | Development and deployment guidance |
+| [`quickstart.md`](quickstart.md) | Provisioning, local dev, extending the agent |
+| [`rag.md`](rag.md) | Azure AI Search RAG — search adapter, indexing pipeline |
+| [`logging.md`](logging.md) | Backend logging & telemetry — the streaming/persist error handling and the RAG retrieval audit trail |
+| [`features.md`](features.md) | Feature overview |
+| [`guidance.md`](guidance.md) | Development and deployment guidance |
 | `load-balancing*.md` | APIM load balancing configuration |
-| `apim-policies.md` | AI Gateway policies (rate limits, token management) |
-| `apim-azure-monitor.md` | Monitoring and observability via APIM |
-| `apim-app-insights.md` | Application Insights integration with APIM |
+| [`apim-policies.md`](apim-policies.md) | AI Gateway policies (rate limits, token management) |
+| [`apim-azure-monitor.md`](apim-azure-monitor.md) | Monitoring and observability via APIM |
+| [`apim-app-insights.md`](apim-app-insights.md) | Application Insights integration with APIM |

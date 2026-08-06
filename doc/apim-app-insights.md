@@ -106,8 +106,8 @@ To customize the Application Insights diagnostics settings, you can override the
 Updated the module chain to pass the Application Insights logger name:
 
 1. **APIM Service** (`/infra/modules/apim/resources/apim-service.bicep`): Added output for the logger name
-2. **APIM Module** (`/infra/modules/apim/apim.bicep`): Pass through the logger name output
-3. **Main Template** (`/infra/main.bicep`): Pass the logger name from APIM to AI module
+2. **APIM Module** ([`/infra/modules/apim/apim.bicep`](../infra/modules/apim/apim.bicep)): Pass through the logger name output
+3. **Main Template** ([`/infra/main.bicep`](../infra/main.bicep)): Pass the logger name from APIM to AI module
 4. **AI Module** (`/infra/modules/ai/ai.bicep`): Pass the logger name to the API module
 
 ## Features Enabled

@@ -4,8 +4,8 @@
 
 This document catalogs the **FinOps** controls built into the infrastructure: how spend is made
 *visible*, how it is *guarded* against surprises, and the *levers* that let each deployment right-size
-to its own scale. It is the cost counterpart to the observability docs (`logging.md`,
-`apim-app-insights.md`, `apim-azure-monitor.md`).
+to its own scale. It is the cost counterpart to the observability docs ([`logging.md`](logging.md),
+[`apim-app-insights.md`](apim-app-insights.md), [`apim-azure-monitor.md`](apim-azure-monitor.md)).
 
 Design philosophy — this repo is a **reusable template/demo**, so every control ships with a **cheap,
 zero-config default** that keeps `azd up` working with no extra input, and is **parameterized** so an
@@ -13,33 +13,33 @@ adopter can dial it up (or down) per environment. Nothing here adds production r
 the focus is cost governance.
 
 Most knobs live as **module-level Bicep params with defaults**, tuned by editing the owning module.
-Only a few are surfaced at the top level in `infra/main.bicep` (`enableVerboseLogs`, `owner`,
+Only a few are surfaced at the top level in [`infra/main.bicep`](../infra/main.bicep) (`enableVerboseLogs`, `owner`,
 `application`, `costCenter`). None are currently wired to `azd` environment variables —
-`infra/main.parameters.json` passes only `environment` and `location` — so overrides are made by editing
+[`infra/main.parameters.json`](../infra/main.parameters.json) passes only `environment` and `location` — so overrides are made by editing
 the Bicep defaults or passing `--parameters` to a manual `az deployment`.
 
 ## Control summary
 
 | FinOps capability | Control | Where | Default |
 | --- | --- | --- | --- |
-| Cost allocation | Resource tags (`owner`/`application`/`cost-center`/`environment`/`managed-by`) | `infra/main.bicep` `var tags` | `unassigned` / `maf-ai-agent` / `unassigned` |
-| Cost visibility | Token & cost showback workbook | `modules/monitor/resources/workbook.bicep` | always deployed |
-| Spend guardrail | Log Analytics daily ingestion cap | `modules/monitor/resources/loganalytics.bicep` | `dailyQuotaGb = 1` |
-| Spend guardrail | App Insights telemetry sampling | `modules/monitor/resources/appinsights.bicep` | `samplingPercentage = 100` |
+| Cost allocation | Resource tags (`owner`/`application`/`cost-center`/`environment`/`managed-by`) | [`infra/main.bicep`](../infra/main.bicep) `var tags` | `unassigned` / `maf-ai-agent` / `unassigned` |
+| Cost visibility | Token & cost showback workbook | [`modules/monitor/resources/workbook.bicep`](../infra/modules/monitor/resources/workbook.bicep) | always deployed |
+| Spend guardrail | Log Analytics daily ingestion cap | [`modules/monitor/resources/loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep) | `dailyQuotaGb = 1` |
+| Spend guardrail | App Insights telemetry sampling | [`modules/monitor/resources/appinsights.bicep`](../infra/modules/monitor/resources/appinsights.bicep) | `samplingPercentage = 100` |
 | Cost optimization | Scoped platform-log ingestion | `enableVerboseLogs` (main → APIM/Cosmos/Foundry/Search) | `false` (metrics-only) |
-| Right-sizing | Backend App Service Plan SKU | `modules/app/app.bicep` | `Basic` / `B1` |
-| Right-sizing | Azure AI Search SKU | `modules/search/search.bicep` | `free` (hybrid + semantic ranking) |
-| Right-sizing | Foundry model TPM capacity | `modules/foundry/foundry.bicep` | chat `1000`, embedding `150` |
-| Right-sizing | Cosmos serverless vs provisioned | `modules/cosmosdb/resources/account.bicep` | `useServerless = false` |
-| Data lifecycle | Storage blob age-out policy | `modules/storage/resources/account.bicep` | delete after `90` days |
+| Right-sizing | Backend App Service Plan SKU | [`modules/app/app.bicep`](../infra/modules/app/app.bicep) | `Basic` / `B1` |
+| Right-sizing | Azure AI Search SKU | [`modules/search/search.bicep`](../infra/modules/search/search.bicep) | `free` (hybrid + semantic ranking) |
+| Right-sizing | Foundry model TPM capacity | [`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) | chat `1000`, embedding `150` |
+| Right-sizing | Cosmos serverless vs provisioned | [`modules/cosmosdb/resources/account.bicep`](../infra/modules/cosmosdb/resources/account.bicep) | `useServerless = false` |
+| Data lifecycle | Storage blob age-out policy | [`modules/storage/resources/account.bicep`](../infra/modules/storage/resources/account.bicep) | delete after `90` days |
 | Data lifecycle | Conversation transcript TTL | `MAX_HISTORY_TTL_DAYS` (backend) | `0` = never expire |
-| Token governance | APIM `llm-token-limit` / quotas + in-context compaction | `apim/policies/foundry-api-policy.xml`, backend | *pre-existing — see below* |
+| Token governance | APIM `llm-token-limit` / quotas + in-context compaction | [`apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml), backend | *pre-existing — see below* |
 
 ---
 
 ## 1. Cost visibility & allocation — tags & showback workbook
 
-Every resource is tagged for cost slicing. `infra/main.bicep` builds one `tags` object and each module
+Every resource is tagged for cost slicing. [`infra/main.bicep`](../infra/main.bicep) builds one `tags` object and each module
 merges its own `azd-service-name` on top via `union(tags, …)`, so a tag added at the root propagates
 everywhere:
 
@@ -55,41 +55,41 @@ var tags object = {
 ```
 
 These become cost-allocation dimensions in **Azure Cost Management** (group/filter by tag) and enable
-showback/chargeback. Set real values by editing the param defaults in `main.bicep` or passing
+showback/chargeback. Set real values by editing the param defaults in [`main.bicep`](../infra/main.bicep) or passing
 `owner=…`, `application=…`, `costCenter=…` at deploy time.
 
 ### Token & cost showback workbook
 
-`modules/monitor/resources/workbook.bicep` deploys an Azure Monitor **workbook** ("Token & Cost
+[`modules/monitor/resources/workbook.bicep`](../infra/modules/monitor/resources/workbook.bicep) deploys an Azure Monitor **workbook** ("Token & Cost
 Insights") over telemetry the stack already emits — no new data source, only Log Analytics query cost.
 It turns the APIM `llm-emit-token-metric` counter (dimensioned by *API ID*) and the backend's
 `RAG retrieval audit` trace into showback views: **total tokens over time**, **tokens by API**, the
 **prompt-vs-completion-vs-total** split, and **RAG retrievals over time**, all scoped by a time-range
 pill. Multiply the token totals by your model's per-token price for a cost estimate. It is **always
-deployed** (no switch, wired from `main.bicep`'s `workbookName`) and its KQL targets the classic App
+deployed** (no switch, wired from [`main.bicep`](../infra/main.bicep)'s `workbookName`) and its KQL targets the classic App
 Insights `customMetrics`/`traces` tables via the component `sourceId` — adjust the metric-name filters if
 your emitted names differ. Its operational sibling — request health, dependencies, RAG audit, Content
-Safety — is the **Agent Operations** workbook (`ops-workbook.bicep`, see [Logging](./logging.md)), which
+Safety — is the **Agent Operations** workbook ([`ops-workbook.bicep`](../infra/modules/monitor/resources/ops-workbook.bicep), see [Logging](./logging.md)), which
 replaced the stock `azd` Application Insights dashboard.
 
 ## 2. Spend guardrails
 
 ### Log Analytics daily ingestion cap
 
-`resources/loganalytics.bicep` sets `workspaceCapping.dailyQuotaGb = 1` — a hard ceiling that stops a
+[`resources/loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep) sets `workspaceCapping.dailyQuotaGb = 1` — a hard ceiling that stops a
 logging spike from producing a runaway ingestion bill. Retention stays at the free 30-day default.
 Set `-1` to disable the cap.
 
 ### App Insights sampling
 
-`resources/appinsights.bicep` exposes `samplingPercentage` (default **100** = keep all
+[`resources/appinsights.bicep`](../infra/modules/monitor/resources/appinsights.bicep) exposes `samplingPercentage` (default **100** = keep all
 telemetry, best for a demo). Lower it (e.g. `50`) to cap telemetry ingestion cost as traffic grows —
-`monitor.bicep` no longer forwards it, so tune it in the module directly.
+[`monitor.bicep`](../infra/modules/monitor/monitor.bicep) no longer forwards it, so tune it in the module directly.
 
 ## 3. Diagnostics cost control — `enableVerboseLogs`
 
 Platform **logs** are the expensive part of Log Analytics ingestion; **metrics** are cheap and drive the
-dashboards. The `enableVerboseLogs` flag (`main.bicep`, default **`false`**) is threaded to the four
+dashboards. The `enableVerboseLogs` flag ([`main.bicep`](../infra/main.bicep), default **`false`**) is threaded to the four
 noisy services — **APIM, Cosmos, Foundry, Search**. When `false`, their diagnostic settings ship
 **metrics only** (`logs: []`); when `true`, the full `allLogs` + `audit` category groups are sent.
 
@@ -98,7 +98,7 @@ logs: enableVerboseLogs ? [ { categoryGroup: 'allLogs', enabled: enableLogs } �
 ```
 
 Audit logs were already disabled by default, so this is no observability regression out of the box.
-Backend **application** telemetry (including the RAG retrieval audit, see `logging.md`) flows through
+Backend **application** telemetry (including the RAG retrieval audit, see [`logging.md`](logging.md)) flows through
 Application Insights and is **unaffected** by this flag. Flip it to `true` per environment if you need
 platform logs for troubleshooting.
 
@@ -106,7 +106,7 @@ platform logs for troubleshooting.
 
 ### Backend App Service Plan
 
-`modules/app/app.bicep` parameterizes the plan (`appServicePlanSku` / `appServicePlanSkuCode`, default
+[`modules/app/app.bicep`](../infra/modules/app/app.bicep) parameterizes the plan (`appServicePlanSku` / `appServicePlanSkuCode`, default
 `Basic` / **`B1`**). Basic is the functional floor — the backend runs a continuous `QueueIngestionWorker`
 `BackgroundService`, which needs **Always On** (Basic+ only); Free/Shared (`F1`/`D1`) also impose a
 60-CPU-min/day quota that stops the app (HTTP 403) and cap the process at 32-bit/2 GB, so they can't host it.
@@ -114,18 +114,18 @@ B1 (1 vCPU / 1.75 GB) suits this I/O-bound workload (LLM/OCR/embeddings run off-
 (2 vCPU / 3.5 GB) if a large-file ingestion overlapping concurrent streams saturates the single core, or
 `P1v3` for real traffic. Changing SKU is an in-place update (non-destructive). The
 frontend adds no plan cost: it is an Azure **Static Web App** on the **Free** SKU (`staticWebAppSku`,
-`modules/app/resources/static-web-app.bicep`) — no App Service Plan, no server tier.
+[`modules/app/resources/static-web-app.bicep`](../infra/modules/app/resources/static-web-app.bicep)) — no App Service Plan, no server tier.
 
 ### Foundry model capacity
 
-`modules/foundry/foundry.bicep` sets each deployment's **GlobalStandard capacity** (chat `1000`, embedding
+[`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) sets each deployment's **GlobalStandard capacity** (chat `1000`, embedding
 `150`). This is a per-model **TPM rate ceiling** in thousands of tokens/min, **not** a fixed charge —
 GlobalStandard bills pay-per-token — but a bounded ceiling stops a runaway-spend scenario in a demo.
 Raise per environment as throughput needs grow.
 
 ### Cosmos serverless option
 
-`modules/cosmosdb/resources/account.bicep` exposes `useServerless` (default **`false`** = provisioned
+[`modules/cosmosdb/resources/account.bicep`](../infra/modules/cosmosdb/resources/account.bicep) exposes `useServerless` (default **`false`** = provisioned
 throughput + free tier). When `true`, it enables the `EnableServerless` capability and drops the
 provisioned throughput cap and free tier (both incompatible with serverless):
 
@@ -146,7 +146,7 @@ one-free-tier-account-per-subscription limit for a second environment.
 ### Storage blob age-out
 
 Uploaded attachments and their Document-Intelligence markdown output are otherwise only purged on
-session/file delete, so they accumulate cost indefinitely. `resources/account.bicep` adds a
+session/file delete, so they accumulate cost indefinitely. [`resources/account.bicep`](../infra/modules/storage/resources/account.bicep) adds a
 `managementPolicies` rule (`lifecycleDeleteAfterDays`, default **90**): block blobs are **tiered to Cool**
 at half the window (45 days) and **deleted** at the full window (90 days). Set `0` to disable. Keep the
 window generous — these blobs back the RAG citation previews.
@@ -161,14 +161,14 @@ that means unbounded storage/RU growth. The `MAX_HISTORY_TTL_DAYS` env var
 - **`> 0`** → `MessageTtlSeconds = days × 86400`, so Cosmos auto-evicts old messages.
 
 It must map to `-1` and never `null` — a literal `ttl: null` makes Cosmos reject every write with
-`BadRequest` (see `AgentFactory.cs` and the Cosmos schema note in `CLAUDE.md`).
+`BadRequest` (see [`AgentFactory.cs`](../src/agent_backend/Services/AgentFactory.cs) and the Cosmos schema note in [`CLAUDE.md`](../CLAUDE.md)).
 
 ## 6. Already-present token governance (context)
 
 The largest AI-workload cost — model tokens — was already well controlled before this FinOps pass, and
 remains the primary defense:
 
-- **APIM gateway** (`modules/apim/policies/foundry-api-policy.xml`): `llm-token-limit`
+- **APIM gateway** ([`modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml)): `llm-token-limit`
   (500K TPM, 30M-tokens/hour quota — below combined model capacity), `quota-by-key`, `rate-limit-by-key`, and `llm-emit-token-metric`
   (per-API token metric to App Insights — the raw material the **Token & Cost Insights** workbook now
   visualizes, see §1).

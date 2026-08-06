@@ -6,7 +6,7 @@ There are 3 options for getting started:
 2. Run in your local VS Code using the [VS Code Dev Containers](#42-vs-code-dev-containers) extension.
 3. Setting-up a [Local Environment](#43-local-environment) (MacOS, Linux or Windows).
 
-Both Codespaces and Dev Containers share the same [`.devcontainer`](../.devcontainer/) definition, so the environment is identical either way. It provisions the **.NET 10 SDK** (backend), **Node.js 20** (frontend), plus `az`, `azd`, and Bicep. On create, `install-requirements.sh` runs `dotnet restore` on every `src/*/*.csproj` and `npm install` on every `src/*/package.json`, so both tiers are ready to run — ports **8000** (backend) and **5173** (frontend) are labelled and auto-forwarded.
+Both Codespaces and Dev Containers share the same [`.devcontainer`](../.devcontainer/) definition, so the environment is identical either way. It provisions the **.NET 10 SDK** (backend), **Node.js 20** (frontend), plus `az`, `azd`, and Bicep. On create, [`install-requirements.sh`](../.devcontainer/install-requirements.sh) runs `dotnet restore` on every `src/*/*.csproj` and `npm install` on every `src/*/package.json`, so both tiers are ready to run — ports **8000** (backend) and **5173** (frontend) are labelled and auto-forwarded.
 
 ## GitHub Codespaces
 

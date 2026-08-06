@@ -121,7 +121,7 @@ All services log to Application Insights with structured logging:
 
 ## Performance Optimization
 
-1. **Conversation history bounding** - Two complementary layers, both set in `AgentFactory.Create`: `MAX_HISTORY_MESSAGES` caps how many messages the `CosmosChatHistoryProvider` reads per turn (Cosmos RU/latency), and an in-context compaction pipeline (`ToolResultCompactionStrategy` → `ContextWindowCompactionStrategy`, budget from `MAX_CONTEXT_WINDOW_TOKENS` − `MAX_OUTPUT_TOKENS`) trims what the model sees to control prompt size — see `overview.md` › *Bounding history*
+1. **Conversation history bounding** - Two complementary layers, both set in `AgentFactory.Create`: `MAX_HISTORY_MESSAGES` caps how many messages the `CosmosChatHistoryProvider` reads per turn (Cosmos RU/latency), and an in-context compaction pipeline (`ToolResultCompactionStrategy` → `ContextWindowCompactionStrategy`, budget from `MAX_CONTEXT_WINDOW_TOKENS` − `MAX_OUTPUT_TOKENS`) trims what the model sees to control prompt size — see [`overview.md`](overview.md) › *Bounding history*
 2. **APIM caching** - Consider caching policies for frequently accessed endpoints
 3. **Model selection** - Use gpt-5.4-mini for faster, cost-effective responses when appropriate
 4. **Concurrent requests** - APIM load balances across multiple model deployments

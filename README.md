@@ -48,7 +48,7 @@ The whole estate is split across four resource groups per environment (monitorin
 
 <div align="center">
   <figure>
-    <img src="doc/images/architecture-diagram-dark.png" alt="Architecture Diagram"><br />
+    <img src="doc/images/architecture-diagram.png" alt="Architecture Diagram"><br />
     <figcaption><i>Architecture Diagram</i></figcaption>
   </figure>
 </div><br />

@@ -88,7 +88,7 @@ See [APIM Policies](./apim-policies.md) for detailed policy documentation.
   - Agent performance metrics (MAF GenAI spans — LLM calls, tool invocations, token usage; message content excluded)
   - Token usage statistics
   - Custom events and traces — including the **RAG retrieval audit trail** (which files/chunks grounded each answer) and chat persist-failure errors (see [Logging](./logging.md))
-- **Workbooks:** Two Azure Monitor workbooks over the Application Insights data — an **Agent Operations** workbook (request health, per-backend dependencies, RAG retrieval audit, Content Safety detections, persist failures, and GenAI spans — see [Logging](./logging.md)) and a **Token & Cost Insights** workbook for token/cost showback (see [FinOps](./finops.md))
+- **Workbooks:** Three Azure Monitor workbooks — an **Agent Operations** workbook (request health, per-backend dependencies, RAG retrieval audit, Content Safety detections, persist failures, and GenAI spans — see [Logging](./logging.md)), a **Token & Cost Insights** workbook for token/cost showback (see [FinOps](./finops.md)), and an **API Gateway Operations** workbook over the `ApiManagementGatewayLogs` table (per-API and per-endpoint success/failure, response-time percentiles, error reasons, throttling, per-caller consumption — see [APIM & Azure Monitor](./apim-azure-monitor.md))
 
 > [!NOTE]
 > Both web apps are deployed with managed identities and have RBAC permissions to access Key Vault, Cosmos DB, and AI Foundry resources.
@@ -96,6 +96,21 @@ See [APIM Policies](./apim-policies.md) for detailed policy documentation.
 ## Security
 
 This template uses [Managed Identity](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview) and Key Vault for secure, passwordless authentication. System-assigned managed identities are configured for both web apps and API Management, with RBAC roles granting least-privilege access to Azure resources.
+
+**Gateway exposure:**
+
+The APIM gateway is public by default and is the only internet-facing surface in front of the AI services. It is guarded in layers:
+
+| Layer | Control |
+|---|---|
+| Transport | HTTPS-only protocols; TLS 1.0/1.1 and SSL 3.0 plus weak ciphers disabled on both frontend and backend ([`service.bicep`](../infra/modules/apim/resources/service.bicep)) |
+| Surface | Only the operations declared in each imported OpenAPI document exist. Any other path is rejected by the gateway with `404` before policy evaluation — the lean definitions *are* the allow-list |
+| Authentication | Every API sets `subscriptionRequired: true`. A request without a valid key is rejected with `401`, also before inbound policy evaluation |
+| Authorization | The key comes from the `/apis`-scoped `ai-gateway` subscription, so it reaches every imported API but never the APIM management surface |
+| Backend auth | APIM injects its own managed identity toward AI Foundry, Document Intelligence, Content Safety, and AI Search — no service admin keys exist to leak |
+| Network *(opt-in)* | A service-scope `ip-filter` allow-list can pin the gateway to the backend App Service's outbound IPs, no VNet required — `restrictGatewayToBackend`, default `false` |
+
+Because unmatched paths and keyless requests are both rejected ahead of policy evaluation, opportunistic internet scanning cannot be filtered by policy — it is already being rejected, and its only real cost is log ingestion. The `ip-filter` layer is **leaked-key containment**, not scanner suppression. See [APIM Policies](./apim-policies.md) › *Service-Scope Policy* for what enabling it breaks (local development, the APIM test console) and why the outbound IP list is not permanent.
 
 **RBAC Permissions:**
 

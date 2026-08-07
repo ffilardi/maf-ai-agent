@@ -229,6 +229,6 @@ Key ordering insight: **the cap bounds what Cosmos *reads*; compaction bounds wh
 | [`features.md`](features.md) | Feature overview |
 | [`guidance.md`](guidance.md) | Development and deployment guidance |
 | `load-balancing*.md` | APIM load balancing configuration |
-| [`apim-policies.md`](apim-policies.md) | AI Gateway policies (rate limits, token management) |
+| [`apim-policies.md`](apim-policies.md) | AI Gateway policies (rate limits, token management, service-scope gateway IP allow-list) |
 | [`apim-azure-monitor.md`](apim-azure-monitor.md) | APIM service diagnostic settings to Log Analytics, gateway token metrics, and the API Gateway Operations workbook |
 | [`apim-app-insights.md`](apim-app-insights.md) | Application Insights integration with APIM |

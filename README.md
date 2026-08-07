@@ -79,7 +79,7 @@ API Management service acts as an AI gateway and intelligent load balancer for A
 | --------- | ----------- |
 | [APIM Load Balancing](doc/load-balancing.md) | Load balancing types, configuration options, and traffic distribution strategies for Azure OpenAI model deployments |
 | [APIM Load Balancing Examples](doc/load-balancing-examples.md) | Bicep configuration examples for round-robin, weighted, and priority-based load balancing scenarios |
-| [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls |
+| [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls — including the service-scope IP allow-list that restricts the gateway to the backend without a VNet |
 | [APIM Application Insights](doc/apim-app-insights.md) | Application Insights integration setup for API-level logging, sampling, and monitoring configuration |
 | [APIM Azure Monitor](doc/apim-azure-monitor.md) | Service-level diagnostic settings to Log Analytics, the `enableVerboseLogs` switch, and gateway token metrics |
 

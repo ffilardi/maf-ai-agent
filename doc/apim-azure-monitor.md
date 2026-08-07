@@ -69,6 +69,21 @@ monitor module is not deployed, no diagnostic setting is created and APIM emits 
 Per-request diagnostics do **not** depend on this switch: the Application Insights API diagnostics in
 [`apim-app-insights.md`](apim-app-insights.md) are always on whenever an App Insights logger exists.
 
+> [!NOTE]
+> `ApiManagementGatewayLogs` records **every** request the gateway receives, including the opportunistic
+> internet scanning any public endpoint attracts — probes for `/.env`, `/wp-admin` and similar. Those are
+> rejected with `404` (no matching API) or `401` (no subscription key) before any policy runs, so they are
+> a log-ingestion cost rather than an exposure, and no APIM policy can suppress them. This switch is the
+> blunt lever; the surgical one is a workspace transformation DCR dropping rows with no matched `ApiId`.
+> Gateway hardening is covered in [`apim-policies.md`](apim-policies.md) › *Service-Scope Policy*.
+>
+> ```kusto
+> ApiManagementGatewayLogs
+> | where TimeGenerated > ago(24h) and ResponseCode in (401, 404)
+> | summarize Requests = count() by Url, CallerIpAddress
+> | order by Requests desc
+> ```
+
 ## Token metrics from the gateway policy
 
 Token accounting is emitted by policy rather than by diagnostic settings.

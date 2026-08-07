@@ -26,6 +26,12 @@ param staticWebAppLocation string = 'westus2'
 @description('Ship verbose allLogs platform logs to Log Analytics. True (default) = full gateway/resource request logs; set false for metrics-only and lower ingestion cost.')
 param enableVerboseLogs bool = true
 
+@description('Restrict the APIM gateway to the backend App Service with a service-scope ip-filter allow-list over the backend\'s outbound IPs. False (default) leaves the gateway open to any caller holding a valid subscription key.')
+param restrictGatewayToBackend bool = false
+
+@description('Extra IPs or CIDR ranges allowed through the gateway when restrictGatewayToBackend is true, e.g. a developer workstation running the backend against Azure.')
+param additionalGatewayAllowedIps string[] = []
+
 @description('Owner (team or individual) accountable for this deployment. Used for cost allocation.')
 param owner string = 'unassigned'
 
@@ -227,6 +233,17 @@ module apiManagement './modules/apim/apim.bicep' = {
     keyVaultName: keyVault.outputs.vaultName
     commonResourceGroupName: commonResourceGroup.name
     enableVerboseLogs: enableVerboseLogs
+  }
+}
+
+module apiManagementGlobalPolicy './modules/apim/resources/global-policy.bicep' = {
+  name: 'api-management-global-policy'
+  scope: aiResourceGroup
+  params: {
+    apimServiceName: apiManagement.outputs.apimServiceName
+    allowedIpAddresses: restrictGatewayToBackend
+      ? union(split(appServices.outputs.webAppBackendOutboundIpAddresses, ','), additionalGatewayAllowedIps)
+      : []
   }
 }
 

@@ -109,6 +109,12 @@ All services log to Application Insights with structured logging:
    - Ensure RBAC role "Cognitive Services User" is assigned to APIM identity
    - Check APIM policy configuration for correct resource URL
 
+7. **`403 Forbidden` from the gateway with a valid subscription key:**
+   - The service-scope `ip-filter` is active (`restrictGatewayToBackend` is `true`) and the caller is not on the allow-list
+   - Expected when running the backend locally or using the APIM test console — add the caller's IP to `additionalGatewayAllowedIps`
+   - After changing the App Service Plan tier, or if Azure migrated the app, the backend's `possibleOutboundIpAddresses` have rotated — re-run `azd provision` to refresh the allow-list
+   - `ApiManagementGatewayLogs | where ResponseCode == 403 | project TimeGenerated, CallerIpAddress, Url, LastErrorReason` in Log Analytics shows which addresses were blocked
+
 ## Security Best Practices
 
 1. **Never commit secrets** - Use Key Vault for all sensitive configuration
@@ -116,8 +122,11 @@ All services log to Application Insights with structured logging:
 3. **Apply least privilege** - Grant only necessary RBAC roles
 4. **Enable diagnostic logs** - Send all logs to Log Analytics
 5. **Rotate keys regularly** - Use Key Vault secret versioning
-6. **Secure APIM endpoints** - Always require subscription keys
+6. **Secure APIM endpoints** - Always require subscription keys (`subscriptionRequired: true` on every imported API)
 7. **Monitor access** - Review Key Vault and Cosmos DB access logs
+8. **Keep the OpenAPI definitions lean** - Only the declared operations exist at the gateway; every other path is rejected with `404` before any policy runs, so the definition is the real attack-surface allow-list
+9. **Contain a leaked gateway key** - Set `restrictGatewayToBackend` to `true` to apply a service-scope `ip-filter` over the backend App Service's outbound IPs, restricting the gateway to the backend without a VNet — see [`apim-policies.md`](apim-policies.md) › *Service-Scope Policy*. Layer it under the subscription key, never instead of it
+10. **Expect internet background noise** - A public gateway attracts opportunistic scanning for unsecured endpoints and leaked files. Those requests never match an imported API and never carry a key, so they are already being rejected; they are a log-ingestion cost, not an exposure. Tune with `enableVerboseLogs` rather than with policy
 
 ## Performance Optimization
 

@@ -1,0 +1,15 @@
+<policies>
+    <inbound>
+        <!--
+            Service-scope ("All APIs") policy. Runs ahead of every API-level policy.
+            The placeholder below is substituted by resources/global-policy.bicep and
+            collapses to nothing when restrictGatewayToBackend is false.
+        -->
+        __IP_FILTER__
+    </inbound>
+    <backend>
+        <forward-request />
+    </backend>
+    <outbound />
+    <on-error />
+</policies>

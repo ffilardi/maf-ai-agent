@@ -224,3 +224,6 @@ output id string = app.id
 output name string = app.name
 output defaultHostName string = 'https://${app.properties.defaultHostName}'
 output principalId string = app.identity.principalId
+
+// Feeds the APIM gateway allow-list; it changes if the plan tier changes or the app is migrated.
+output outboundIpAddresses string = app.properties.possibleOutboundIpAddresses

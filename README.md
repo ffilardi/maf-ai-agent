@@ -79,7 +79,7 @@ API Management service acts as an AI gateway and intelligent load balancer for A
 | --------- | ----------- |
 | [APIM Load Balancing](doc/load-balancing.md) | Load balancing types, configuration options, and traffic distribution strategies for Azure OpenAI model deployments |
 | [APIM Load Balancing Examples](doc/load-balancing-examples.md) | Bicep configuration examples for round-robin, weighted, and priority-based load balancing scenarios |
-| [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls |
+| [APIM Policies](doc/apim-policies.md) | APIM policy definitions for managed identity authentication, rate limiting, token quotas, and security controls — including the service-scope IP allow-list that restricts the gateway to the backend without a VNet |
 | [APIM Application Insights](doc/apim-app-insights.md) | Application Insights integration setup for API-level logging, sampling, and monitoring configuration |
 | [APIM Azure Monitor](doc/apim-azure-monitor.md) | Service-level diagnostic settings to Log Analytics, the `enableVerboseLogs` switch, and gateway token metrics |
 
@@ -100,9 +100,10 @@ Every chat turn, tool call, and retrieval flows into **Application Insights** vi
   </figure>
 </div><br />
 
-The project also ships two purpose-built Azure Monitor workbooks:
+The project also ships three purpose-built Azure Monitor workbooks:
 
 - **Agent Operations** (request health, dependency latency, the RAG retrieval audit trail, Content Safety detections)
+- **API Gateway Operations** (successful vs. unsuccessful calls per API and per endpoint, response-time percentiles with the gateway-overhead split, error reasons, throttling, per-caller consumption — see [APIM & Azure Monitor](./doc/apim-azure-monitor.md))
 - **Token & Cost Insights** (see [FinOps](./doc/finops.md)) — for signal this stock dashboard doesn't surface. Full telemetry wiring, log call sites, and KQL query examples are in the [Logging guide](./doc/logging.md).
 
 ## Costs

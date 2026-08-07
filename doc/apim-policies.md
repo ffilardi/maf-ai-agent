@@ -2,6 +2,43 @@
 
 The AI Foundry API is secured and optimized through comprehensive APIM policies defined in [`infra/modules/apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml). These policies implement enterprise-grade security, rate limiting, and monitoring.
 
+Policies apply at two scopes. The **service scope** ("All APIs") runs first and wraps every API; the **API scope** runs where each API policy places its `<base />`. All four imported API policies open every section with `<base />`, so the service-scope policy always executes.
+
+> [!IMPORTANT]
+> The service-scope policy must **not** contain `<base />` itself — the element refers to the parent scope's policy and the service scope has no parent. APIM rejects the deployment with `Element <base/> is not allowed in global context`. Conversely it *must* keep `<forward-request />` in its `<backend>` section: that is the scope forwarding actually lives at, and every API policy's `<backend><base /></backend>` chains up to it. Dropping it silently stops the gateway reaching any backend.
+
+## Service-Scope Policy (All APIs)
+
+[`infra/modules/apim/policies/global-policy.xml`](../infra/modules/apim/policies/global-policy.xml), applied by [`infra/modules/apim/resources/global-policy.bicep`](../infra/modules/apim/resources/global-policy.bicep), holds an optional IP allow-list that restricts the gateway to the backend App Service — **without a VNet**:
+
+```xml
+<ip-filter action="allow">
+    <address>20.x.x.x</address>
+    ...
+</ip-filter>
+```
+
+The address list is not authored by hand. The policy XML declares an `__IP_FILTER__` placeholder (the same substitution idiom `api.bicep` uses for `__BACKEND_ID__`) and the module fills it from the backend App Service's `possibleOutboundIpAddresses`, plus anything in `additionalGatewayAllowedIps`.
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `restrictGatewayToBackend` | `false` | Master switch. `true` emits the `ip-filter` over the backend's outbound IPs; `false` collapses it to nothing and the gateway stays reachable by any caller holding a valid subscription key |
+| `additionalGatewayAllowedIps` | `[]` | Extra IPs or CIDR ranges merged into the allow-list — e.g. a developer workstation. Only meaningful when the switch is `true` |
+
+Both are top-level parameters in [`infra/main.bicep`](../infra/main.bicep); set them in [`infra/main.parameters.json`](../infra/main.parameters.json) and re-run `azd provision`. The policy resource is deployed either way, so flipping the switch back off genuinely removes the restriction — a conditional module would leave the last-applied policy in place.
+
+**What this protects against — and what it does not.** APIM rejects a request whose path matches no imported API with `404`, and a request missing the subscription key with `401`, both *before* inbound policy evaluation. Neither ever reaches this file. Opportunistic internet scanning therefore **cannot** be filtered here; it is already being rejected by the gateway, and the only lever over its cost is log ingestion (see [APIM & Azure Monitor](./apim-azure-monitor.md) › `enableVerboseLogs`). What the allow-list buys is **leaked-key containment**: if the `ai-gateway` subscription key ever escapes, it is only usable from your backend's egress addresses. Treat it as defence in depth layered under the subscription key, not as a replacement for it.
+
+Three consequences before enabling it:
+
+| Consequence | Detail |
+| --- | --- |
+| Blocks local development | A backend run with `dotnet run` against the deployed APIM gets `403`. Add your workstation IP to `additionalGatewayAllowedIps`. |
+| Blocks the APIM test console | The portal's *Test* tab calls through the gateway and is filtered like any other caller. |
+| Outbound IPs are not permanent | `possibleOutboundIpAddresses` is a shared per-scale-unit pool. It rotates if the App Service Plan tier changes (`B1`→`B2` will do it) or the app is migrated between platform stamps — re-run `azd provision` after either. |
+
+The allow-list is gateway-scope only; the Developer-SKU developer portal and management endpoints are unaffected by it. If traffic must never reach APIM at all, the only no-VNet option is Azure Front Door + WAF in front of the gateway with APIM restricted to the `X-Azure-FDID` header — disproportionate for a Developer-SKU instance absorbing scanner noise it already rejects.
+
 ## Inbound Policies
 
 **1. Managed Identity Authentication**

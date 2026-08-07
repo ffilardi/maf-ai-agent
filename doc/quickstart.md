@@ -49,6 +49,7 @@
     - Open Application Insights in the Azure portal
     - View real-time metrics, request traces, and custom events
     - Open the **Agent Operations** workbook (Application Insights → Workbooks) for request health, dependency latency, the RAG retrieval audit, and Content Safety detections
+    - Open the **API Gateway Operations** workbook (Log Analytics workspace → Workbooks) for per-API and per-endpoint success/failure counts, response times, throttling, and per-caller consumption
 
 ## Local Development
 

@@ -303,3 +303,4 @@ output webAppBackendId string = webAppBackend.outputs.id
 output webAppBackendName string = webAppBackend.outputs.name
 output webAppBackendHostName string = webAppBackend.outputs.defaultHostName
 output webAppBackendPrincipalId string = webAppBackend.outputs.principalId
+output webAppBackendOutboundIpAddresses string = webAppBackend.outputs.outboundIpAddresses

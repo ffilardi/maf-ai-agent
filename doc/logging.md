@@ -191,7 +191,11 @@ and organizes it into sections — **request health** (rate, failures, P50/P95, 
 (latency + failures split across the APIM gateway, Cosmos, and AI Search), the **RAG retrieval audit**
 (retrievals over time, top grounding sources, zero-hit turns), **Content Safety & reliability**
 (detections, persist failures, top exceptions), and the **GenAI spans** (LLM + tool operations). Token /
-cost showback lives in the sibling **Token & Cost Insights** workbook instead (see [`finops.md`](finops.md)).
+cost showback lives in the sibling **Token & Cost Insights** workbook instead (see [`finops.md`](finops.md)),
+and the gateway's own health — per-API and per-endpoint success/failure, response-time percentiles,
+throttling, per-caller consumption — in the **API Gateway Operations** workbook (see
+[`apim-azure-monitor.md`](apim-azure-monitor.md)). Note that this third one lives under **Log Analytics
+workspace → Workbooks**, not App Insights, because it reads the `ApiManagementGatewayLogs` table.
 
 > Note on rollout: `azd provision` creates the workbook but does not delete the pre-existing `dash-*`
 > Portal dashboard from older deployments (azd doesn't prune resources dropped from the template) —

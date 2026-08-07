@@ -24,6 +24,7 @@ the Bicep defaults or passing `--parameters` to a manual `az deployment`.
 | --- | --- | --- | --- |
 | Cost allocation | Resource tags (`owner`/`application`/`cost-center`/`environment`/`managed-by`) | [`infra/main.bicep`](../infra/main.bicep) `var tags` | `unassigned` / `maf-ai-agent` / `unassigned` |
 | Cost visibility | Token & cost showback workbook | [`modules/monitor/resources/workbook.bicep`](../infra/modules/monitor/resources/workbook.bicep) | always deployed |
+| Cost visibility | Gateway consumption & throttling workbook (per-caller attribution, quota headroom) | [`modules/monitor/resources/apim-workbook.bicep`](../infra/modules/monitor/resources/apim-workbook.bicep) | always deployed |
 | Spend guardrail | Log Analytics daily ingestion cap | [`modules/monitor/resources/loganalytics.bicep`](../infra/modules/monitor/resources/loganalytics.bicep) | `dailyQuotaGb = 1` |
 | Spend guardrail | App Insights telemetry sampling | [`modules/monitor/resources/appinsights.bicep`](../infra/modules/monitor/resources/appinsights.bicep) | `samplingPercentage = 100` |
 | Cost optimization | Scoped platform-log ingestion | `enableVerboseLogs` (main → APIM/Cosmos/Foundry/Search/App Service) | `true` (full logs); set `false` for metrics-only |
@@ -79,6 +80,14 @@ Insights `customMetrics`/`traces` tables via the component `sourceId` — adjust
 your emitted names differ. Its operational sibling — request health, dependencies, RAG audit, Content
 Safety — is the **Agent Operations** workbook ([`ops-workbook.bicep`](../infra/modules/monitor/resources/ops-workbook.bicep), see [Logging](./logging.md)), which
 replaced the stock `azd` Application Insights dashboard.
+
+The third workbook, **API Gateway Operations** ([`apim-workbook.bicep`](../infra/modules/monitor/resources/apim-workbook.bicep), see
+[APIM & Azure Monitor](./apim-azure-monitor.md)), is the demand-side complement to this one: where the
+tiles above price what was consumed, its per-caller (`ApimSubscriptionId`) breakdown attributes gateway
+traffic, and its throttling split — gateway rate/token-limit policy vs. upstream Azure OpenAI TPM 429s —
+plus the `x-apim-ratelimit-remaining-tokens` headroom tile tell you whether the quotas in
+[§2](#2-spend-guardrails) are actually binding, and on which side. It reads `ApiManagementGatewayLogs`,
+so it lives under **Log Analytics workspace → Workbooks** rather than App Insights.
 
 ## 2. Spend guardrails
 

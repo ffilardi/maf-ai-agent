@@ -16,6 +16,9 @@ param opsWorkbookName string
 @description('Name for the App Insights workbook.')
 param workbookName string
 
+@description('Name for the APIM gateway workbook.')
+param apimWorkbookName string
+
 module logAnalytics './resources/loganalytics.bicep' = {
   name: logAnalyticsName
   params: {
@@ -55,6 +58,18 @@ module workbook './resources/workbook.bicep' = {
   }
 }
 
+// Sourced at the workspace, not App Insights: the per-operation gateway view lives in the dedicated
+// ApiManagementGatewayLogs table shipped there by the APIM diagnostic setting.
+module apimWorkbook './resources/apim-workbook.bicep' = {
+  name: apimWorkbookName
+  params: {
+    location: location
+    tags: tags
+    name: apimWorkbookName
+    logAnalyticsWorkspaceId: logAnalytics.outputs.id
+  }
+}
+
 output logAnalyticsWorkspaceId string = logAnalytics.outputs.id
 output logAnalyticsWorkspaceName string = logAnalytics.outputs.name
 output applicationInsightsId string = applicationInsights.outputs.id
@@ -63,3 +78,5 @@ output applicationInsightsConnectionString string = applicationInsights.outputs.
 output applicationInsightsInstrumentationKey string = applicationInsights.outputs.instrumentationKey
 output opsWorkbookId string = opsWorkbook.outputs.id
 output opsWorkbookName string = opsWorkbook.outputs.name
+output apimWorkbookId string = apimWorkbook.outputs.id
+output apimWorkbookName string = apimWorkbook.outputs.name

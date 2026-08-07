@@ -100,9 +100,10 @@ Every chat turn, tool call, and retrieval flows into **Application Insights** vi
   </figure>
 </div><br />
 
-The project also ships two purpose-built Azure Monitor workbooks:
+The project also ships three purpose-built Azure Monitor workbooks:
 
 - **Agent Operations** (request health, dependency latency, the RAG retrieval audit trail, Content Safety detections)
+- **API Gateway Operations** (successful vs. unsuccessful calls per API and per endpoint, response-time percentiles with the gateway-overhead split, error reasons, throttling, per-caller consumption — see [APIM & Azure Monitor](./doc/apim-azure-monitor.md))
 - **Token & Cost Insights** (see [FinOps](./doc/finops.md)) — for signal this stock dashboard doesn't surface. Full telemetry wiring, log call sites, and KQL query examples are in the [Logging guide](./doc/logging.md).
 
 ## Costs

@@ -57,6 +57,7 @@ var logAnalyticsName string = 'log-${environment}-${token}'
 var applicationInsightsName string = 'appi-${environment}-${token}'
 var opsWorkbookName string = 'ops-workbook-${environment}-${token}'
 var workbookName string = 'workbook-${environment}-${token}'
+var apimWorkbookName string = 'apim-workbook-${environment}-${token}'
 
 resource monitorResourceGroup 'Microsoft.Resources/resourceGroups@2024-11-01' = {
   name: monitorResourceGroupName
@@ -74,6 +75,7 @@ module monitor './modules/monitor/monitor.bicep' = {
     applicationInsightsName: applicationInsightsName
     opsWorkbookName: opsWorkbookName
     workbookName: workbookName
+    apimWorkbookName: apimWorkbookName
   }
 }
 

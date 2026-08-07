@@ -125,3 +125,38 @@ AzureMetrics
 The **Agent Operations** workbook
 ([`infra/modules/monitor/resources/ops-workbook.bicep`](../infra/modules/monitor/resources/ops-workbook.bicep))
 is the visual layer over this telemetry — see [`logging.md`](logging.md).
+
+## The API Gateway Operations workbook
+
+[`infra/modules/monitor/resources/apim-workbook.bicep`](../infra/modules/monitor/resources/apim-workbook.bicep)
+deploys the admin-facing view of the gateway itself — always deployed, wired from
+[`main.bicep`](../infra/main.bicep)'s `apimWorkbookName`. Open it under the **Log Analytics workspace →
+Workbooks** (or from the `rg-monitor-<env>-<token>` resource-group listing) — not Application Insights,
+where the other two live.
+
+That asymmetry is deliberate: `ApiManagementGatewayLogs` is the only sink carrying `ApiId` /
+`OperationId`, `IsRequestSuccess`, the `TotalTime` / `BackendTime` / `ClientTime` split and the
+`LastError*` fields, and App Insights request rows from the gateway co-mingle there with the backend
+agent's own. Because App Insights is workspace-based, one tile can still reach `AppRequests` for the
+rate-limit headers.
+
+> Listing it in the App Insights gallery instead (`sourceId: appInsightsId`) looks tempting for
+> discoverability, but don't: the tiles would then load in a resource context that has no workspace, and
+> the workbook renders empty. Each tile's `crossComponentResources` therefore pins the workspace **by
+> resource id**, not through a `{Workspace}` resource-picker parameter — a type-5 picker populates its
+> dropdown from that same ambient context and resolves to null anywhere but the workspace blade.
+
+Two pills scope every tile: **time range** (1 h / 1 d / 7 d / 30 d, default 7 d) and a multi-select
+**API** filter populated from the `ApiId` values actually seen in the window (defaults to all four
+gateway APIs). Sections:
+
+| Section | Tiles |
+| ------- | ----- |
+| Traffic at a glance | Summary KPIs (calls, succeeded/failed, success %, P50/P95, unique APIs, operations and callers); calls-and-failures over time; success rate over time |
+| Per API and per endpoint | Successful vs. unsuccessful calls, failure % and latency **by API**, then **by operation** (`OperationId` + method) — the per-endpoint answer; throughput by API over time |
+| Response times | Total time P50/P95/P99; the backend vs. **gateway overhead** (`TotalTime - BackendTime`) vs. client split; slowest endpoints by P95 |
+| Errors and throttling | Response codes by class over time; unsuccessful calls by endpoint and status code; top `LastErrorSource` / `LastErrorReason` (policy failures vs. backend); **429s split into gateway-enforced (rate/token-limit policy) vs. upstream Azure OpenAI TPM**; token-limit headroom from the logged `x-apim-ratelimit-remaining-tokens` header |
+| Consumption and backend distribution | Calls per caller (`ApimSubscriptionId`); load-balancer distribution by `BackendUrl`; bandwidth and cache hits by API; a recent-failures drill-down list carrying `CorrelationId` for the jump back into App Insights |
+
+Because the whole workbook reads `ApiManagementGatewayLogs`, it goes blank if `enableVerboseLogs` is set
+to `false` (see the parameter above) — platform metrics survive, but the per-operation detail does not.

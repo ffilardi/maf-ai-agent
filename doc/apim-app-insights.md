@@ -150,3 +150,10 @@ After deployment, you can view the API diagnostics in:
 - Azure Portal > API Management > APIs > [Your API] > Settings > Diagnostics logs
 - Application Insights > Logs for detailed query and analysis
 - Application Insights > Live Metrics for real-time monitoring
+
+For a ready-made admin view rather than ad-hoc queries, the **API Gateway Operations** workbook
+([`apim-workbook.bicep`](../infra/modules/monitor/resources/apim-workbook.bicep)) charts successful vs.
+unsuccessful calls per API and per endpoint, response-time percentiles, error reasons, throttling and
+per-caller consumption. It is driven by the `ApiManagementGatewayLogs` table populated by the *service*
+diagnostic setting rather than the per-API diagnostics described here, so it opens under **Log Analytics
+workspace → Workbooks** — see [APIM & Azure Monitor](apim-azure-monitor.md).

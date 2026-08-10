@@ -10,12 +10,8 @@ public static class MetaEndpoints
 {
     public static void MapMetaEndpoints(this IEndpointRouteBuilder app)
     {
-        // Index route — reports the runtime.
-        app.MapGet("/", () =>
-        {
-            var version = RuntimeInformation.FrameworkDescription; // e.g. ".NET 10.0.10"
-            return Results.Text($"Running on {version}");
-        });
+        // Index route — reports the runtime (e.g. ".NET 10.0.10").
+        app.MapGet("/", () => Results.Text($"Running on {RuntimeInformation.FrameworkDescription}"));
 
         // Health check endpoint.
         app.MapGet("/ping", () => Results.Json(new { status = "healthy" }));

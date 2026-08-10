@@ -5,7 +5,6 @@ using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
 
 namespace AgentBackend.Services;
 
@@ -45,13 +44,17 @@ public sealed class SearchAdapter(AgentOptions options, EmbeddingService embeddi
                 return Enumerable.Empty<TextSearchProvider.TextSearchResult>();
             }
 
-            var searchOptions = new SearchOptions { Size = MaxResults };
-
-            // Semantic re-ranking over the fused keyword + vector set using the index's semantic configuration.
-            searchOptions.QueryType = SearchQueryType.Semantic;
-            searchOptions.SemanticSearch = new SemanticSearchOptions
+            var searchOptions = new SearchOptions
             {
-                SemanticConfigurationName = SearchIndexer.SemanticConfigurationName,
+                Size = MaxResults,
+                // Semantic re-ranking over the fused keyword + vector set using the index's semantic configuration.
+                QueryType = SearchQueryType.Semantic,
+                SemanticSearch = new SemanticSearchOptions
+                {
+                    SemanticConfigurationName = SearchIndexer.SemanticConfigurationName,
+                },
+                // Scope to the current conversation's uploaded documents (sessionId guaranteed non-empty above).
+                Filter = $"sessionId eq {SearchIndexer.FilterLiteral(sessionId)}",
             };
 
             // Vector leg of the hybrid query: embed the query text and match it against contentVector.
@@ -70,9 +73,6 @@ public sealed class SearchAdapter(AgentOptions options, EmbeddingService embeddi
                     },
                 };
             }
-
-            // Scope to the current conversation's uploaded documents (sessionId guaranteed non-empty above).
-            searchOptions.Filter = $"sessionId eq '{sessionId.Replace("'", "''")}'";
 
             var response = await _client.SearchAsync<SearchDocument>(query, searchOptions, cancellationToken);
 

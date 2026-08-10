@@ -76,23 +76,15 @@ public sealed class IngestionStatusStore(AgentOptions options, TokenCredential c
     /// <summary>Lists every file id (row key) recorded for a conversation — the single-partition query.</summary>
     public async Task<IReadOnlyList<string>> ListFileIdsAsync(string sessionId, CancellationToken cancellationToken)
     {
-        var fileIds = new List<string>();
-        var entities = _table.QueryAsync<StatusEntity>(
-            e => e.PartitionKey == sessionId, cancellationToken: cancellationToken);
-        await foreach (var entity in entities.WithCancellation(cancellationToken))
-        {
-            fileIds.Add(entity.RowKey);
-        }
-        return fileIds;
+        var files = await ListAsync(sessionId, cancellationToken);
+        return files.Select(f => f.FileId).ToList();
     }
 
     /// <summary>Lists every file's status for a conversation (the single-partition query), for the files panel.</summary>
     public async Task<IReadOnlyList<FileStatusResponse>> ListAsync(string sessionId, CancellationToken cancellationToken)
     {
         var files = new List<FileStatusResponse>();
-        var entities = _table.QueryAsync<StatusEntity>(
-            e => e.PartitionKey == sessionId, cancellationToken: cancellationToken);
-        await foreach (var e in entities.WithCancellation(cancellationToken))
+        await foreach (var e in QuerySession(sessionId, cancellationToken))
         {
             files.Add(new FileStatusResponse(e.RowKey, e.FileName, e.Status, e.ChunkCount, e.Error));
         }
@@ -108,23 +100,16 @@ public sealed class IngestionStatusStore(AgentOptions options, TokenCredential c
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
+            // Already gone — nothing to do.
         }
     }
 
     /// <summary>Deletes every status row for a conversation. Idempotent (a missing row 404s and is ignored).</summary>
     public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken)
     {
-        var entities = _table.QueryAsync<StatusEntity>(
-            e => e.PartitionKey == sessionId, cancellationToken: cancellationToken);
-        await foreach (var entity in entities.WithCancellation(cancellationToken))
+        await foreach (var entity in QuerySession(sessionId, cancellationToken))
         {
-            try
-            {
-                await _table.DeleteEntityAsync(sessionId, entity.RowKey, ETag.All, cancellationToken);
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-            }
+            await DeleteAsync(sessionId, entity.RowKey, cancellationToken);
         }
     }
 
@@ -142,4 +127,8 @@ public sealed class IngestionStatusStore(AgentOptions options, TokenCredential c
             return null;
         }
     }
+
+    // The single-partition query behind every session-scoped read/delete.
+    private AsyncPageable<StatusEntity> QuerySession(string sessionId, CancellationToken cancellationToken) =>
+        _table.QueryAsync<StatusEntity>(e => e.PartitionKey == sessionId, cancellationToken: cancellationToken);
 }

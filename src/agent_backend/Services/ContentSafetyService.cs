@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using AgentBackend.Configuration;
 
@@ -65,14 +64,8 @@ public sealed class ContentSafetyService
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, _analyzeUri);
-            request.Headers.Add("Ocp-Apim-Subscription-Key", _options.ApimSubscriptionKey);
-            request.Content = JsonContent.Create(new { text, outputType = "EightSeverityLevels" });
+            using var doc = await PostAsync(_analyzeUri, new { text, outputType = "EightSeverityLevels" }, ct);
 
-            using var response = await _http.SendAsync(request, ct);
-            response.EnsureSuccessStatusCode();
-
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
             var results = new List<CategorySeverity>();
             if (doc.RootElement.TryGetProperty("categoriesAnalysis", out var analysis))
             {
@@ -101,14 +94,8 @@ public sealed class ContentSafetyService
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, _shieldUri);
-            request.Headers.Add("Ocp-Apim-Subscription-Key", _options.ApimSubscriptionKey);
-            request.Content = JsonContent.Create(new { userPrompt = text, documents = Array.Empty<string>() });
+            using var doc = await PostAsync(_shieldUri, new { userPrompt = text, documents = Array.Empty<string>() }, ct);
 
-            using var response = await _http.SendAsync(request, ct);
-            response.EnsureSuccessStatusCode();
-
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
             return doc.RootElement.TryGetProperty("userPromptAnalysis", out var analysis)
                 && analysis.TryGetProperty("attackDetected", out var detected)
                 && detected.GetBoolean();
@@ -118,5 +105,19 @@ public sealed class ContentSafetyService
             _logger.LogWarning(ex, "Content Safety text:shieldPrompt failed; treating as no attack (fail-open).");
             return false;
         }
+    }
+
+    // Posts one Content Safety operation through the gateway and returns the parsed response body.
+    // Throws on transport/status failure; each caller wraps the whole call-and-parse in its own fail-open handler.
+    private async Task<JsonDocument> PostAsync<TPayload>(Uri uri, TPayload payload, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri);
+        request.Headers.Add("Ocp-Apim-Subscription-Key", _options.ApimSubscriptionKey);
+        request.Content = JsonContent.Create(payload);
+
+        using var response = await _http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
     }
 }

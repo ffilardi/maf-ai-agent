@@ -1,7 +1,5 @@
 using System.Text.Json;
 using AgentBackend.Models;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace AgentBackend.Endpoints;
 
@@ -43,8 +41,7 @@ public sealed class UiMessageStreamResult(IAsyncEnumerable<UiStreamPart> parts) 
         catch (Exception ex)
         {
             // Last-resort net: log a post-headers exception and still write [DONE] below so the client sees a clean termination (avoids ERR_CONNECTION_RESET).
-            http.RequestServices.GetRequiredService<ILoggerFactory>()
-                .CreateLogger<UiMessageStreamResult>()
+            http.RequestServices.GetRequiredService<ILogger<UiMessageStreamResult>>()
                 .LogError(ex, "Streaming failed after headers committed; terminating stream with [DONE]");
         }
 

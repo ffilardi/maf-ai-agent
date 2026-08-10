@@ -28,6 +28,9 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
     private const int MaxIndexReadyAttempts = 12;
     private static readonly TimeSpan IndexReadyRetryDelay = TimeSpan.FromSeconds(10);
 
+    // Max document keys per delete request (Azure AI Search caps a batch at 1000 actions).
+    private const int MaxDeleteBatchSize = 1000;
+
     /// <summary>Name of the index's semantic configuration (title + content); shared by <see cref="InitializeAsync"/> and <see cref="SearchAdapter"/>.</summary>
     public const string SemanticConfigurationName = "semantic-config";
 
@@ -127,17 +130,17 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
         }
     }
 
-    // Max document keys per delete request (Azure AI Search caps a batch at 1000 actions).
-    private const int MaxDeleteBatchSize = 1000;
+    /// <summary>Quotes <paramref name="value"/> as an OData string literal (single quotes doubled); the one escaping rule shared with <see cref="SearchAdapter"/>'s scope filter.</summary>
+    public static string FilterLiteral(string value) => $"'{value.Replace("'", "''")}'";
 
     /// <summary>Deletes every chunk tagged with <paramref name="sessionId"/> (filter-then-delete); called on conversation delete, best-effort.</summary>
     public Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken) =>
-        DeleteByFilterAsync($"sessionId eq '{sessionId.Replace("'", "''")}'", cancellationToken);
+        DeleteByFilterAsync($"sessionId eq {FilterLiteral(sessionId)}", cancellationToken);
 
     /// <summary>Deletes every chunk for one <paramref name="fileId"/> within <paramref name="sessionId"/>; called on single-attachment delete, best-effort.</summary>
     public Task DeleteByFileAsync(string sessionId, string fileId, CancellationToken cancellationToken) =>
         DeleteByFilterAsync(
-            $"sessionId eq '{sessionId.Replace("'", "''")}' and fileId eq '{fileId.Replace("'", "''")}'",
+            $"sessionId eq {FilterLiteral(sessionId)} and fileId eq {FilterLiteral(fileId)}",
             cancellationToken);
 
     // Queries the index for the document keys matching a filter, then removes them in batches (≤1000).

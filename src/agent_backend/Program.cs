@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using AgentBackend.Configuration;
-using Azure.Monitor.OpenTelemetry.AspNetCore;
 using AgentBackend.Endpoints;
 using AgentBackend.Services;
 using Azure.Core;
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.Agents.AI;
 using Microsoft.Azure.Cosmos;
 
@@ -30,10 +30,10 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
 {
     builder.Services.AddOpenTelemetry()
         .UseAzureMonitor()
-        .WithTracing(tracing => tracing.AddSource(AgentBackend.Services.AgentFactory.TelemetrySourceName))
+        .WithTracing(tracing => tracing.AddSource(AgentFactory.TelemetrySourceName))
         .WithMetrics(metrics => metrics
-            .AddMeter(AgentBackend.Services.AgentFactory.TelemetrySourceName)
-            .AddMeter(AgentBackend.Services.TokenUsageTelemetry.MeterName));
+            .AddMeter(AgentFactory.TelemetrySourceName)
+            .AddMeter(TokenUsageTelemetry.MeterName));
 }
 
 // CORS for the SPA (browser → backend directly); origins from ALLOWED_ORIGINS, empty list = no cross-origin access.

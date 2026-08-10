@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, FileText, Loader2, Menu } from 'lucide-react';
 import { getConfig, type AppConfig, type ChatUIMessage, type ConversationSummary } from '@/lib/backend';
 import { getSessionId, resetSessionId, setSessionId as persistSessionId } from '@/lib/session';
@@ -43,6 +43,13 @@ export default function App() {
     setSessions(await fetchSessions());
   }, []);
 
+  // Sessions with a persisted turn, tracked synchronously so a same-tick "New chat" can't race the async `sessions` refetch and purge a just-persisted session's files.
+  const persistedSessionIds = useRef<Set<string>>(new Set());
+  const handleTurnComplete = useCallback(() => {
+    persistedSessionIds.current.add(sessionId);
+    void refreshSessions();
+  }, [sessionId, refreshSessions]);
+
   const refreshFiles = useCallback(async () => {
     setFiles(await listFiles(sessionId));
   }, [sessionId]);
@@ -56,9 +63,7 @@ export default function App() {
     void refreshFiles();
   }, [refreshFiles]);
 
-  // While any file is still indexing server-side, keep polling the backend so the panel reaches the true
-  // terminal state (indexed/failed with its backend error). The backend's retry budget (~25 min) far exceeds
-  // the composer's own 5-min client poll, whose `onFilesChanged` refresh alone would leave the panel stuck on "Indexing…".
+  // While any file is still indexing server-side, keep polling so the panel reaches its true terminal state (the backend's ~25-min retry budget far exceeds the composer's own 5-min poll).
   const anyProcessing = useMemo(() => files.some((f) => f.status === 'processing'), [files]);
   useEffect(() => {
     if (!anyProcessing) return;
@@ -83,7 +88,7 @@ export default function App() {
 
   // Best-effort purge of an unpersisted session's uploaded files when navigating away from it.
   function purgeAbandonedFiles(abandonedId: string) {
-    const persisted = sessions.some((s) => s.id === abandonedId);
+    const persisted = persistedSessionIds.current.has(abandonedId) || sessions.some((s) => s.id === abandonedId);
     if (!persisted && files.length > 0) {
       void deleteSession(abandonedId); // DELETE /chat/{id} tears down chunks/blobs/status rows
     }
@@ -184,7 +189,7 @@ export default function App() {
               reasoningEffort={settings.reasoningEffort}
               model={model}
               ragOnly={settings.ragOnly && ragAvailable}
-              onTurnComplete={refreshSessions}
+              onTurnComplete={handleTurnComplete}
               onFilesChanged={refreshFiles}
               onOpenAttachment={openPreview}
             />

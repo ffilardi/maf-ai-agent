@@ -28,6 +28,8 @@ public sealed class ConversationStore(CosmosClient cosmosClient, AgentOptions op
     {
         var container = Container;
 
+        // Cosmos DB rejects ORDER BY over a GROUP BY aggregate ("ORDER BY item expression could not be mapped to a
+        // document path"), so sorting/limiting can't be pushed into this query — every group is scanned regardless.
         var conversations = new List<(string Id, long UpdatedAt)>();
         var listQuery = new QueryDefinition(
             "SELECT c.conversationId AS id, MAX(c.timestamp) AS updatedAt FROM c GROUP BY c.conversationId");

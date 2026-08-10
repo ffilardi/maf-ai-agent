@@ -29,9 +29,9 @@ public static class ChatEndpoints
         {
             return Results.Problem(statusCode: 503, detail: "Agent not configured (APIM settings missing).");
         }
-        if (!options.HasCosmosConfig)
+        if (RequireConversationStore(options) is { } problem)
         {
-            return Results.Problem(statusCode: 503, detail: "Conversation store not configured.");
+            return problem;
         }
         if (req.RagOnly && !options.HasAiSearchConfig)
         {
@@ -39,6 +39,12 @@ public static class ChatEndpoints
         }
         return null;
     }
+
+    // 503 guard shared by the sessions trio (and folded into ValidateChatConfig); null when Cosmos is configured.
+    private static IResult? RequireConversationStore(AgentOptions options) =>
+        options.HasCosmosConfig
+            ? null
+            : Results.Problem(statusCode: 503, detail: "Conversation store not configured.");
 
     // Buffered chat endpoint — runs one MAF agent turn through the APIM gateway.
     private static async Task<IResult> PostChatAsync(
@@ -101,9 +107,9 @@ public static class ChatEndpoints
     private static async Task<IResult> GetSessionsAsync(
         AgentOptions options, IServiceProvider services, CancellationToken ct)
     {
-        if (!options.HasCosmosConfig)
+        if (RequireConversationStore(options) is { } problem)
         {
-            return Results.Problem(statusCode: 503, detail: "Conversation store not configured.");
+            return problem;
         }
 
         var store = services.GetRequiredService<ConversationStore>();
@@ -115,9 +121,9 @@ public static class ChatEndpoints
     private static async Task<IResult> GetSessionMessagesAsync(
         string sessionId, AgentOptions options, IServiceProvider services, CancellationToken ct)
     {
-        if (!options.HasCosmosConfig)
+        if (RequireConversationStore(options) is { } problem)
         {
-            return Results.Problem(statusCode: 503, detail: "Conversation store not configured.");
+            return problem;
         }
 
         var store = services.GetRequiredService<ConversationStore>();
@@ -130,22 +136,18 @@ public static class ChatEndpoints
     private static async Task<IResult> DeleteSessionAsync(
         string sessionId, bool? keepFiles, AgentOptions options, IServiceProvider services, CancellationToken ct)
     {
-        if (!options.HasCosmosConfig)
+        if (RequireConversationStore(options) is { } problem)
         {
-            return Results.Problem(statusCode: 503, detail: "Conversation store not configured.");
+            return problem;
         }
 
         var store = services.GetRequiredService<ConversationStore>();
         await store.DeleteAsync(sessionId, ct);
 
-        if (keepFiles != true)
+        // GetService returns null when ingestion isn't configured; the transcript delete still stands.
+        if (keepFiles != true && services.GetService<IngestionService>() is { } ingestion)
         {
-            // Null when ingestion isn't configured; the transcript delete still stands.
-            var ingestion = services.GetService<IngestionService>();
-            if (ingestion is not null)
-            {
-                await ingestion.PurgeSessionAsync(sessionId, ct);
-            }
+            await ingestion.PurgeSessionAsync(sessionId, ct);
         }
 
         return Results.NoContent();

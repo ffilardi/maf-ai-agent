@@ -1,22 +1,19 @@
 using System.ClientModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using AgentBackend.Configuration;
+using AgentBackend.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
-// Alias DTOs to avoid the name clash with Microsoft.Extensions.AI.ChatResponse / ChatMessage.
-using ChatRequest = AgentBackend.Models.ChatRequest;
+// The DTO wins the name clash with Microsoft.Extensions.AI.ChatResponse (ChatMessage below stays the M.E.AI type).
 using ChatResponse = AgentBackend.Models.ChatResponse;
-using UiStreamPart = AgentBackend.Models.UiStreamPart;
-using MessageMetadata = AgentBackend.Models.MessageMetadata;
-using TokenUsage = AgentBackend.Models.TokenUsage;
-using CachedTokenDetails = AgentBackend.Models.CachedTokenDetails;
 
 namespace AgentBackend.Services;
 
 /// <summary>Runs the shared agent for a single chat turn and shapes the result into the wire contract.</summary>
 public sealed class ChatService(
     AIAgent agent,
-    AgentBackend.Configuration.AgentOptions options,
+    AgentOptions options,
     // contentSafety is null when Content Safety is disabled (CONTENT_SAFETY_MODE=off); the pre-check is then skipped.
     ContentSafetyService? contentSafety,
     // FinOps: per-turn token usage → App Insights metrics (by model) + a per-session log line. Never throws.
@@ -107,7 +104,7 @@ public sealed class ChatService(
         while (true)
         {
             AgentResponseUpdate? update = null;
-            UiStreamPart? error = null;
+            string? errorText = null;
             try
             {
                 if (!await enumerator.MoveNextAsync())
@@ -123,10 +120,10 @@ public sealed class ChatService(
             }
             catch (Exception ex)
             {
-                error = new UiStreamPart("error", ErrorText: ex.Message);
+                errorText = ex.Message;
             }
 
-            if (error is not null)
+            if (errorText is not null)
             {
                 // Updates already present ⇒ the answer succeeded and this is the end-of-turn Cosmos persist failing:
                 // log it and complete the stream normally (the post-loop closers finish any open blocks) so the client
@@ -138,13 +135,13 @@ public sealed class ChatService(
                         "Model responded but history persist failed (session={SessionId}): {Error}; "
                             + "completing stream — this turn was NOT saved to Cosmos. Persist payload: {Payload}",
                         request.SessionId,
-                        error.ErrorText,
+                        errorText,
                         DescribePersistPayload(updates.ToAgentResponse()));
                     break;
                 }
 
                 // No streamed content ⇒ a model/gateway failure; no blocks are open yet, so the error part is terminal.
-                yield return error;
+                yield return new UiStreamPart("error", ErrorText: errorText);
                 yield break;
             }
 
@@ -222,36 +219,26 @@ public sealed class ChatService(
     // Reasoning effort and model ride the same options; MAF merges them over the agent defaults (a null ModelId keeps the default).
     // Instructions are materialised in full by BuildInstructions (never null) so the always-appended SafetyDirective can't be dropped.
     // RawRepresentationFactory is always re-set so the Responses request keeps StoredOutputEnabled=false.
-    private ChatClientAgentRunOptions BuildRunOptions(ChatRequest request)
+    private ChatClientAgentRunOptions BuildRunOptions(ChatRequest request) => new()
     {
-        var model = ResolveModel(request.Model);
-        var instructions = BuildInstructions(request);
-
-        return new ChatClientAgentRunOptions
+        ChatOptions = new ChatOptions
         {
-            ChatOptions = new Microsoft.Extensions.AI.ChatOptions
+            // Null leaves the agent default in place; a value replaces it for this turn.
+            ModelId = ResolveModel(request.Model),
+            Instructions = BuildInstructions(request),
+            RawRepresentationFactory = _ => AgentFactory.BuildResponseOptions(request.ReasoningEffort),
+            AdditionalProperties = new AdditionalPropertiesDictionary
             {
-                // Null leaves the agent default in place; a value replaces it for this turn.
-                ModelId = model,
-                Instructions = instructions,
-                RawRepresentationFactory = _ => AgentFactory.BuildResponseOptions(request.ReasoningEffort),
-                AdditionalProperties = new Microsoft.Extensions.AI.AdditionalPropertiesDictionary
-                {
-                    [AgentFactory.SessionIdPropertyKey] = request.SessionId,
-                },
+                [AgentFactory.SessionIdPropertyKey] = request.SessionId,
             },
-        };
-    }
+        },
+    };
 
     // Honour a per-request model only when in the configured allow-list (case-insensitive); else fall back to the agent default.
-    private string? ResolveModel(string? model)
-    {
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            return null;
-        }
-        return options.Models.Contains(model, StringComparer.OrdinalIgnoreCase) ? model : null;
-    }
+    private string? ResolveModel(string? model) =>
+        !string.IsNullOrWhiteSpace(model) && options.Models.Contains(model, StringComparer.OrdinalIgnoreCase)
+            ? model
+            : null;
 
     // Deployment the turn actually billed against: the allow-listed per-request model, else the agent default. Cost telemetry only.
     private string? EffectiveModel(ChatRequest request) => ResolveModel(request.Model) ?? options.DefaultModel;
@@ -373,8 +360,8 @@ public sealed class ChatService(
             {
                 TextReasoningContent reasoning => reasoning.Text?.Length ?? 0,
                 TextContent text => text.Text?.Length ?? 0,
-                FunctionCallContent call => System.Text.Json.JsonSerializer.Serialize(call.Arguments).Length,
-                FunctionResultContent result => System.Text.Json.JsonSerializer.Serialize(result.Result).Length,
+                FunctionCallContent call => JsonSerializer.Serialize(call.Arguments).Length,
+                FunctionResultContent result => JsonSerializer.Serialize(result.Result).Length,
                 _ => 0,
             };
         }
@@ -418,7 +405,6 @@ public sealed class ChatService(
 
         return new TokenUsage(prompt, completion, total, cachedDetails, (int)reasoning);
     }
-
 }
 
 /// <summary>

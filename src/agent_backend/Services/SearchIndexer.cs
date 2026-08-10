@@ -28,6 +28,9 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
     private const int MaxIndexReadyAttempts = 12;
     private static readonly TimeSpan IndexReadyRetryDelay = TimeSpan.FromSeconds(10);
 
+    // Max document keys per delete request (Azure AI Search caps a batch at 1000 actions).
+    private const int MaxDeleteBatchSize = 1000;
+
     /// <summary>Name of the index's semantic configuration (title + content); shared by <see cref="InitializeAsync"/> and <see cref="SearchAdapter"/>.</summary>
     public const string SemanticConfigurationName = "semantic-config";
 
@@ -50,9 +53,7 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
                 new SimpleField("id", SearchFieldDataType.String) { IsKey = true },
                 new SearchableField("title"),
                 new SimpleField("fileName", SearchFieldDataType.String),
-                // Analyzed copy of the file name (no extension) so a filename the user types in the query matches every chunk of that file (soft ranking boost).
-                // Separate from the non-searchable fileName SimpleField, which stays the citation label — flipping IsSearchable there would force an index rebuild; adding a field is an in-place update.
-                new SearchableField("fileNameText"),
+                new SearchableField("fileNameText"), // Copy of the file name (no extension) so a filename the user types in the query matches every chunk of that file (soft ranking boost)
                 new SimpleField("sourceUrl", SearchFieldDataType.String),
                 new SearchableField("content"),
                 new SimpleField("sessionId", SearchFieldDataType.String) { IsFilterable = true },
@@ -127,23 +128,22 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
         }
     }
 
-    // Max document keys per delete request (Azure AI Search caps a batch at 1000 actions).
-    private const int MaxDeleteBatchSize = 1000;
+    /// <summary>Quotes <paramref name="value"/> as an OData string literal (single quotes doubled); the one escaping rule shared with <see cref="SearchAdapter"/>'s scope filter.</summary>
+    public static string FilterLiteral(string value) => $"'{value.Replace("'", "''")}'";
 
     /// <summary>Deletes every chunk tagged with <paramref name="sessionId"/> (filter-then-delete); called on conversation delete, best-effort.</summary>
     public Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken) =>
-        DeleteByFilterAsync($"sessionId eq '{sessionId.Replace("'", "''")}'", cancellationToken);
+        DeleteByFilterAsync($"sessionId eq {FilterLiteral(sessionId)}", cancellationToken);
 
     /// <summary>Deletes every chunk for one <paramref name="fileId"/> within <paramref name="sessionId"/>; called on single-attachment delete, best-effort.</summary>
     public Task DeleteByFileAsync(string sessionId, string fileId, CancellationToken cancellationToken) =>
         DeleteByFilterAsync(
-            $"sessionId eq '{sessionId.Replace("'", "''")}' and fileId eq '{fileId.Replace("'", "''")}'",
+            $"sessionId eq {FilterLiteral(sessionId)} and fileId eq {FilterLiteral(fileId)}",
             cancellationToken);
 
-    // Queries the index for the document keys matching a filter, then removes them in batches (≤1000).
     private async Task DeleteByFilterAsync(string filter, CancellationToken cancellationToken)
     {
-        // Select only the key field so paging is cheap.
+        // Select only the key field so each page is cheap.
         var searchOptions = new SearchOptions
         {
             Filter = filter,
@@ -151,18 +151,27 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
         };
         searchOptions.Select.Add("id");
 
-        var response = await _searchClient.SearchAsync<SearchDocument>("*", searchOptions, cancellationToken);
-        var keys = new List<string>();
-        await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
+        while (true)
         {
-            keys.Add((string)result.Document["id"]);
-        }
+            var response = await _searchClient.SearchAsync<SearchDocument>("*", searchOptions, cancellationToken);
+            var keys = new List<string>();
+            await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
+            {
+                keys.Add((string)result.Document["id"]);
+            }
 
-        for (var i = 0; i < keys.Count; i += MaxDeleteBatchSize)
-        {
-            var slice = keys.GetRange(i, Math.Min(MaxDeleteBatchSize, keys.Count - i));
-            var batch = IndexDocumentsBatch.Delete("id", slice);
+            if (keys.Count == 0)
+            {
+                return;
+            }
+
+            var batch = IndexDocumentsBatch.Delete("id", keys);
             await _searchClient.IndexDocumentsAsync(batch, cancellationToken: cancellationToken);
+
+            if (keys.Count < MaxDeleteBatchSize)
+            {
+                return;
+            }
         }
     }
 

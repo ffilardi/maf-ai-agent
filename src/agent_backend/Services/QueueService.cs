@@ -11,12 +11,17 @@ namespace AgentBackend.Services;
 /// Storage-queue transport for async ingestion: <c>POST /files</c> enqueues an <see cref="IngestionMessage"/>, <see cref="QueueIngestionWorker"/> consumes it.
 /// Work + poison queues live in the storage account (managed identity), created on first use. Messages are plain JSON.
 /// </summary>
-public sealed class QueueService(AgentOptions options, TokenCredential credential)
+public sealed class QueueService
 {
-    private readonly QueueClient _queue =
-        new QueueServiceClient(options.QueueEndpoint, credential).GetQueueClient(options.IngestionQueue);
-    private readonly QueueClient _poison =
-        new QueueServiceClient(options.QueueEndpoint, credential).GetQueueClient($"{options.IngestionQueue}-poison");
+    private readonly QueueClient _queue;
+    private readonly QueueClient _poison;
+
+    public QueueService(AgentOptions options, TokenCredential credential)
+    {
+        var queueService = new QueueServiceClient(options.QueueEndpoint, credential);
+        _queue = queueService.GetQueueClient(options.IngestionQueue);
+        _poison = queueService.GetQueueClient($"{options.IngestionQueue}-poison");
+    }
 
     /// <summary>Creates the work + poison queues if absent; called once at startup by <see cref="IngestionInitializer"/> before polling begins.</summary>
     public async Task InitializeAsync(CancellationToken cancellationToken)

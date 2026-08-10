@@ -6,7 +6,6 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Compaction;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
 using OpenAI.Responses;
 
 namespace AgentBackend.Services;
@@ -93,8 +92,7 @@ public sealed class AgentFactory
         }
 
         // Route through APIM via the Responses API — the only Azure OpenAI surface returning reasoning summaries. Deployment name goes to AsAIAgent below.
-        var azureClient = BuildAzureOpenAIClient(options);
-        ResponsesClient responsesClient = azureClient.GetResponsesClient();
+        var responsesClient = BuildAzureOpenAIClient(options).GetResponsesClient();
 
         var agentOptions = new ChatClientAgentOptions
         {
@@ -174,7 +172,7 @@ public sealed class AgentFactory
             // Durable conversation memory; state initializer resolves the conversation id from the per-request session, minting a fresh id when absent.
             // Constructed directly (not via WithCosmosDBChatHistoryProvider) to pass storeInputResponseMessageFilter — StripToolPlumbing drops tool-call/result messages from the transcript.
             // MaxMessagesToRetrieve caps messages read per turn. MessageTtlSeconds maps 0 → -1 ("never expire"); a positive MaxHistoryTtlDays bounds retention. Must not be null (Cosmos rejects `ttl: null`).
-            var historyProvider = new CosmosChatHistoryProvider(
+            agentOptions.ChatHistoryProvider = new CosmosChatHistoryProvider(
                 cosmosClient,
                 options.CosmosDb,
                 options.CosmosContainer,
@@ -184,7 +182,6 @@ public sealed class AgentFactory
                 MaxMessagesToRetrieve = options.MaxHistoryMessages,
                 MessageTtlSeconds = options.MaxHistoryTtlDays > 0 ? options.MaxHistoryTtlDays * 86_400 : -1,
             };
-            agentOptions.ChatHistoryProvider = historyProvider;
         }
 
         // Emit OpenTelemetry GenAI spans under TelemetrySourceName; EnableSensitiveData=false keeps prompts/responses/tool args out of traces.

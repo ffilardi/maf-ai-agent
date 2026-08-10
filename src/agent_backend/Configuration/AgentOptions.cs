@@ -68,25 +68,10 @@ public sealed class AgentOptions
     private IReadOnlyList<string>? _models;
 
     /// <summary>Selectable chat model deployments, de-duplicated case-insensitively in configured order (computed once; read per request).</summary>
-    public IReadOnlyList<string> Models
-    {
-        get
-        {
-            if (_models is null)
-            {
-                var models = new List<string>();
-                foreach (var m in AiModelDeployments)
-                {
-                    if (!string.IsNullOrWhiteSpace(m) && !models.Contains(m, StringComparer.OrdinalIgnoreCase))
-                    {
-                        models.Add(m);
-                    }
-                }
-                _models = models;
-            }
-            return _models;
-        }
-    }
+    public IReadOnlyList<string> Models => _models ??= AiModelDeployments
+        .Where(m => !string.IsNullOrWhiteSpace(m))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     /// <summary>The default chat model baked into the agent: the first configured deployment.</summary>
     public string? DefaultModel => Models.Count > 0 ? Models[0] : null;

@@ -1,5 +1,4 @@
 using System.Diagnostics.Metrics;
-using Microsoft.Extensions.Logging;
 using TokenUsage = AgentBackend.Models.TokenUsage;
 
 namespace AgentBackend.Services;
@@ -59,7 +58,9 @@ public sealed class TokenUsageTelemetry : IDisposable
         {
             // Two dimensions, both bounded: model is allow-listed, streaming is a boolean. sessionId is deliberately
             // NOT a dimension — it is a UUID, and one time series per conversation would blow up metric cost.
-            var modelTag = new KeyValuePair<string, object?>("model", model ?? "unknown");
+            // Resolve the sentinel once so the metric tag and the traces log line can't report different labels.
+            var resolvedModel = model ?? "unknown";
+            var modelTag = new KeyValuePair<string, object?>("model", resolvedModel);
             var streamTag = new KeyValuePair<string, object?>("streaming", streaming);
 
             turns.Add(1, modelTag, streamTag);
@@ -86,7 +87,7 @@ public sealed class TokenUsageTelemetry : IDisposable
                         + "completion={CompletionTokens} total={TotalTokens} cached={CachedTokens} reasoning={ReasoningTokens}",
                     CostAuditMessage,
                     sessionId,
-                    model ?? "unknown",
+                    resolvedModel,
                     streaming,
                     usage.PromptTokens,
                     usage.CompletionTokens,

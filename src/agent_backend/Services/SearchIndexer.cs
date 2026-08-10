@@ -143,10 +143,12 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
             $"sessionId eq {FilterLiteral(sessionId)} and fileId eq {FilterLiteral(fileId)}",
             cancellationToken);
 
-    // Queries the index for the document keys matching a filter, then removes them in batches (≤1000).
+    // Repeatedly queries the top MaxDeleteBatchSize matching keys and deletes them, until none remain. Deleting from
+    // the top each pass (rather than paging with $skip) means a match count above 1000 is handled correctly: every
+    // pass re-queries the same filter, and previously deleted documents simply drop out of the next page.
     private async Task DeleteByFilterAsync(string filter, CancellationToken cancellationToken)
     {
-        // Select only the key field so paging is cheap.
+        // Select only the key field so each page is cheap.
         var searchOptions = new SearchOptions
         {
             Filter = filter,
@@ -154,18 +156,27 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
         };
         searchOptions.Select.Add("id");
 
-        var response = await _searchClient.SearchAsync<SearchDocument>("*", searchOptions, cancellationToken);
-        var keys = new List<string>();
-        await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
+        while (true)
         {
-            keys.Add((string)result.Document["id"]);
-        }
+            var response = await _searchClient.SearchAsync<SearchDocument>("*", searchOptions, cancellationToken);
+            var keys = new List<string>();
+            await foreach (var result in response.Value.GetResultsAsync().WithCancellation(cancellationToken))
+            {
+                keys.Add((string)result.Document["id"]);
+            }
 
-        for (var i = 0; i < keys.Count; i += MaxDeleteBatchSize)
-        {
-            var slice = keys.GetRange(i, Math.Min(MaxDeleteBatchSize, keys.Count - i));
-            var batch = IndexDocumentsBatch.Delete("id", slice);
+            if (keys.Count == 0)
+            {
+                return;
+            }
+
+            var batch = IndexDocumentsBatch.Delete("id", keys);
             await _searchClient.IndexDocumentsAsync(batch, cancellationToken: cancellationToken);
+
+            if (keys.Count < MaxDeleteBatchSize)
+            {
+                return;
+            }
         }
     }
 

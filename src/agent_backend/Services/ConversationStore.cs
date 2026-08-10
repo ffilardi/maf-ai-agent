@@ -27,12 +27,12 @@ public sealed class ConversationStore(CosmosClient cosmosClient, AgentOptions op
     public async Task<IReadOnlyList<ConversationSummary>> ListAsync(int limit, CancellationToken ct)
     {
         var container = Container;
-        var top = new List<(string Id, long UpdatedAt)>();
-        var listQuery = new QueryDefinition(
-            "SELECT c.conversationId AS id, MAX(c.timestamp) AS updatedAt FROM c " +
-            "GROUP BY c.conversationId ORDER BY MAX(c.timestamp) DESC OFFSET 0 LIMIT @limit")
-            .WithParameter("@limit", limit);
 
+        // Cosmos DB rejects ORDER BY over a GROUP BY aggregate ("ORDER BY item expression could not be mapped to a
+        // document path"), so sorting/limiting can't be pushed into this query — every group is scanned regardless.
+        var conversations = new List<(string Id, long UpdatedAt)>();
+        var listQuery = new QueryDefinition(
+            "SELECT c.conversationId AS id, MAX(c.timestamp) AS updatedAt FROM c GROUP BY c.conversationId");
         using (var iter = container.GetItemQueryIterator<JObject>(listQuery))
         {
             while (iter.HasMoreResults)
@@ -44,10 +44,12 @@ public sealed class ConversationStore(CosmosClient cosmosClient, AgentOptions op
                     {
                         continue;
                     }
-                    top.Add((id, ReadTimestamp(row["updatedAt"])));
+                    conversations.Add((id, ReadTimestamp(row["updatedAt"])));
                 }
             }
         }
+
+        var top = conversations.OrderByDescending(c => c.UpdatedAt).Take(limit).ToList();
 
         // Gated parallel title lookups to bound RU.
         using var gate = new SemaphoreSlim(TitleConcurrency);

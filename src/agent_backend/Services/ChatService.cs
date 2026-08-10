@@ -16,6 +16,8 @@ public sealed class ChatService(
     AgentOptions options,
     // contentSafety is null when Content Safety is disabled (CONTENT_SAFETY_MODE=off); the pre-check is then skipped.
     ContentSafetyService? contentSafety,
+    // ingestionStatus is null when file ingestion isn't configured; the attached-file-names directive is then skipped.
+    IngestionStatusStore? ingestionStatus,
     // FinOps: per-turn token usage → App Insights metrics (by model) + a per-session log line. Never throws.
     TokenUsageTelemetry tokenTelemetry,
     ILogger<ChatService> logger)
@@ -46,7 +48,7 @@ public sealed class ChatService(
         AgentResponse response;
         try
         {
-            response = await agent.RunAsync(message, session, BuildRunOptions(request), cancellationToken: ct);
+            response = await agent.RunAsync(message, session, await BuildRunOptionsAsync(request, ct), cancellationToken: ct);
         }
         catch (ClientResultException ex)
         {
@@ -80,6 +82,7 @@ public sealed class ChatService(
         }
 
         var (message, session) = await BuildTurnAsync(request, ct);
+        var runOptions = await BuildRunOptionsAsync(request, ct);
 
         // Accumulate every update so the terminal metadata part reuses the same extraction as AskAsync.
         var updates = new List<AgentResponseUpdate>();
@@ -99,7 +102,7 @@ public sealed class ChatService(
         // Enumerate manually so an exception from MoveNextAsync can be turned into a terminal error part (can't yield from a catch).
         // Catch broadly: a model/gateway ClientResultException or an end-of-turn Cosmos persist failure, discriminated on whether content already streamed.
         await using var enumerator =
-            agent.RunStreamingAsync(message, session, BuildRunOptions(request), cancellationToken: ct).GetAsyncEnumerator(ct);
+            agent.RunStreamingAsync(message, session, runOptions, cancellationToken: ct).GetAsyncEnumerator(ct);
 
         while (true)
         {
@@ -217,15 +220,15 @@ public sealed class ChatService(
     // Per-request agent options (never null). Carries the request sessionId in ChatOptions.AdditionalProperties so the RAG
     // SearchAdapter can scope retrieval — a data channel, since an AsyncLocal wouldn't survive the pipeline's execution-context re-rooting.
     // Reasoning effort and model ride the same options; MAF merges them over the agent defaults (a null ModelId keeps the default).
-    // Instructions are materialised in full by BuildInstructions (never null) so the always-appended SafetyDirective can't be dropped.
+    // Instructions are materialised in full by BuildInstructionsAsync (never null) so the always-appended SafetyDirective can't be dropped.
     // RawRepresentationFactory is always re-set so the Responses request keeps StoredOutputEnabled=false.
-    private ChatClientAgentRunOptions BuildRunOptions(ChatRequest request) => new()
+    private async Task<ChatClientAgentRunOptions> BuildRunOptionsAsync(ChatRequest request, CancellationToken ct) => new()
     {
         ChatOptions = new ChatOptions
         {
             // Null leaves the agent default in place; a value replaces it for this turn.
             ModelId = ResolveModel(request.Model),
-            Instructions = BuildInstructions(request),
+            Instructions = await BuildInstructionsAsync(request, ct),
             RawRepresentationFactory = _ => AgentFactory.BuildResponseOptions(request.ReasoningEffort),
             AdditionalProperties = new AdditionalPropertiesDictionary
             {
@@ -244,9 +247,10 @@ public sealed class ChatService(
     private string? EffectiveModel(ChatRequest request) => ResolveModel(request.Model) ?? options.DefaultModel;
 
     // Assembles the effective per-turn instructions: the per-request/env base prompt (or the built-in default), plus the
-    // RAG-only grounding directive when requested, then always the non-overridable SafetyDirective last. Materialised in
-    // full (rather than left null to fall back on the agent default) so Layer-0 safety survives a custom prompt replacing the base.
-    private string BuildInstructions(ChatRequest request)
+    // RAG-only grounding directive when requested, plus the attached-file-names directive when the session has indexed
+    // files, then always the non-overridable SafetyDirective last. Materialised in full (rather than left null to fall
+    // back on the agent default) so Layer-0 safety survives a custom prompt replacing the base.
+    private async Task<string> BuildInstructionsAsync(ChatRequest request, CancellationToken ct)
     {
         var systemPrompt = ResolveSystemPrompt(request.SystemPrompt);
         var baseInstructions = systemPrompt
@@ -258,8 +262,33 @@ public sealed class ChatService(
             ? $"{baseInstructions}\n\n{AgentFactory.GroundedOnlyDirective}"
             : baseInstructions;
 
+        // Give the model the session's exact attached file names up front, so it can resolve "the file"/"this
+        // document" references and target its SearchChatAttachments query without a blind discovery call first.
+        var fileNames = await ResolveAttachedFileNamesAsync(request.SessionId, ct);
+        if (fileNames.Count > 0)
+        {
+            instructions = $"{instructions}\n\n{AgentFactory.AttachedFilesDirective(fileNames)}";
+        }
+
         // SafetyDirective is always last so it survives — and outranks — any per-request/env prompt.
         return $"{instructions}\n\n{AgentFactory.SafetyDirective}";
+    }
+
+    // Distinct names of the session's fully-indexed attachments (not yet-processing/failed ones, which the search
+    // tool can't return passages for yet). Empty when ingestion isn't configured or the session has no files.
+    private async Task<IReadOnlyList<string>> ResolveAttachedFileNamesAsync(string sessionId, CancellationToken ct)
+    {
+        if (ingestionStatus is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var files = await ingestionStatus.ListAsync(sessionId, ct);
+        return files
+            .Where(f => f.Status == IngestionStatuses.Indexed)
+            .Select(f => f.FileName)
+            .Distinct()
+            .ToList();
     }
 
     // Accept a non-blank per-session prompt, trimmed and length-capped; blank ⇒ null (agent default applies).

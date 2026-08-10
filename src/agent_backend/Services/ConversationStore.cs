@@ -27,16 +27,12 @@ public sealed class ConversationStore(CosmosClient cosmosClient, AgentOptions op
     public async Task<IReadOnlyList<ConversationSummary>> ListAsync(int limit, CancellationToken ct)
     {
         var container = Container;
-
-        // Ordering + limiting server-side (rather than materializing every group and sorting client-side) keeps the
-        // response — and the client-side memory/CPU to build it — bounded by `limit` instead of total conversation
-        // count. The GROUP BY still scans every message document to compute each group's MAX(timestamp); that scan
-        // cost only goes away with a per-conversation summary doc or user/tenant scoping (see the class note above).
         var top = new List<(string Id, long UpdatedAt)>();
         var listQuery = new QueryDefinition(
             "SELECT c.conversationId AS id, MAX(c.timestamp) AS updatedAt FROM c " +
             "GROUP BY c.conversationId ORDER BY MAX(c.timestamp) DESC OFFSET 0 LIMIT @limit")
             .WithParameter("@limit", limit);
+
         using (var iter = container.GetItemQueryIterator<JObject>(listQuery))
         {
             while (iter.HasMoreResults)

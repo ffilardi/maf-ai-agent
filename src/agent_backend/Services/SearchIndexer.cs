@@ -53,9 +53,7 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
                 new SimpleField("id", SearchFieldDataType.String) { IsKey = true },
                 new SearchableField("title"),
                 new SimpleField("fileName", SearchFieldDataType.String),
-                // Analyzed copy of the file name (no extension) so a filename the user types in the query matches every chunk of that file (soft ranking boost).
-                // Separate from the non-searchable fileName SimpleField, which stays the citation label — flipping IsSearchable there would force an index rebuild; adding a field is an in-place update.
-                new SearchableField("fileNameText"),
+                new SearchableField("fileNameText"), // Copy of the file name (no extension) so a filename the user types in the query matches every chunk of that file (soft ranking boost)
                 new SimpleField("sourceUrl", SearchFieldDataType.String),
                 new SearchableField("content"),
                 new SimpleField("sessionId", SearchFieldDataType.String) { IsFilterable = true },
@@ -143,9 +141,6 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
             $"sessionId eq {FilterLiteral(sessionId)} and fileId eq {FilterLiteral(fileId)}",
             cancellationToken);
 
-    // Repeatedly queries the top MaxDeleteBatchSize matching keys and deletes them, until none remain. Deleting from
-    // the top each pass (rather than paging with $skip) means a match count above 1000 is handled correctly: every
-    // pass re-queries the same filter, and previously deleted documents simply drop out of the next page.
     private async Task DeleteByFilterAsync(string filter, CancellationToken cancellationToken)
     {
         // Select only the key field so each page is cheap.

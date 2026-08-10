@@ -76,13 +76,6 @@ if (agentOptions.HasContentSafetyConfig)
 // Per-turn token/cost telemetry; registered unconditionally (the meter is inert without the Azure Monitor exporter).
 builder.Services.AddSingleton<TokenUsageTelemetry>();
 
-builder.Services.AddSingleton<ChatService>(sp => new ChatService(
-    sp.GetRequiredService<AIAgent>(),
-    agentOptions,
-    sp.GetService<ContentSafetyService>(),
-    sp.GetRequiredService<TokenUsageTelemetry>(),
-    sp.GetRequiredService<ILogger<ChatService>>()));
-
 // File-attachment ingestion pipeline; registered only when fully configured (else POST /files returns 503).
 if (agentOptions.HasIngestionConfig)
 {
@@ -99,6 +92,15 @@ if (agentOptions.HasIngestionConfig)
     // Consumes the queue and runs the pipeline off the request path.
     builder.Services.AddHostedService<QueueIngestionWorker>();
 }
+
+// The main chat endpoint; resolves the agent, telemetry, and optional content-safety service.
+builder.Services.AddSingleton<ChatService>(sp => new ChatService(
+    sp.GetRequiredService<AIAgent>(),
+    agentOptions,
+    sp.GetService<ContentSafetyService>(),
+    sp.GetService<IngestionStatusStore>(),
+    sp.GetRequiredService<TokenUsageTelemetry>(),
+    sp.GetRequiredService<ILogger<ChatService>>()));
 
 var app = builder.Build();
 

@@ -58,9 +58,11 @@ public sealed class AgentOptions
     //   CONTENT_SAFETY_MODE: off (default, no calls) | log (analyze + log, never block) | block (reject flagged).
     //   CONTENT_SAFETY_THRESHOLD: severity (0-7, EightSeverityLevels) at/above which a harm category is flagged.
     //   CONTENT_SAFETY_SHIELD_PROMPT: also run Prompt Shields (jailbreak / prompt-injection detection).
+    //   CONTENT_SAFETY_FAIL_CLOSED: in block mode, also reject turns Content Safety could not evaluate (default false, availability-first).
     public string ContentSafetyMode { get; init; } = "off";
     public int ContentSafetyThreshold { get; init; } = 4;
     public bool ContentSafetyShieldPrompt { get; init; } = true;
+    public bool ContentSafetyFailClosed { get; init; } = false;
 
     // CORS allow-list for the SPA (comma-separated origins). Empty = no cross-origin access; use http://localhost:5173 for local Vite dev.
     public string[] AllowedOrigins { get; init; } = Array.Empty<string>();
@@ -106,6 +108,9 @@ public sealed class AgentOptions
     /// <summary>True when a flagged request should be rejected (block mode) rather than only logged (log mode).</summary>
     public bool IsContentSafetyBlocking => ContentSafetyMode == "block";
 
+    /// <summary>True when a turn Content Safety could not evaluate should be rejected too, rather than allowed through.</summary>
+    public bool IsContentSafetyFailClosed => IsContentSafetyBlocking && ContentSafetyFailClosed;
+
     /// <summary>Blob/Queue/Table service endpoints for the configured storage account (public-cloud suffix).</summary>
     public Uri BlobEndpoint => new($"https://{StorageAccountName}.blob.core.windows.net");
     public Uri QueueEndpoint => new($"https://{StorageAccountName}.queue.core.windows.net");
@@ -142,6 +147,7 @@ public sealed class AgentOptions
         ContentSafetyMode = (config["CONTENT_SAFETY_MODE"] ?? "off").Trim().ToLowerInvariant(),
         ContentSafetyThreshold = int.TryParse(config["CONTENT_SAFETY_THRESHOLD"], out var cst) && cst is >= 0 and <= 7 ? cst : 4,
         ContentSafetyShieldPrompt = !string.Equals(config["CONTENT_SAFETY_SHIELD_PROMPT"], "false", StringComparison.OrdinalIgnoreCase),
+        ContentSafetyFailClosed = string.Equals(config["CONTENT_SAFETY_FAIL_CLOSED"], "true", StringComparison.OrdinalIgnoreCase),
         AllowedOrigins = (config["ALLOWED_ORIGINS"] ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
     };

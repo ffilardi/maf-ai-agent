@@ -27,6 +27,13 @@ param isLocked bool = false
 @description('Display name shown for the workbook.')
 param displayName string = 'Agent Operations'
 
+// The Content Safety outcome counter (ContentSafetyService). `failopen` means the pre-check errored and the turn was
+// allowed through unscreened — in block mode that is blocking silently disabled, which is the whole point of the tile.
+var safetyOutcomes string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Outcome = tostring(customDimensions.outcome) | summarize Turns = sum(valueSum) by bin(timestamp, 15m), Outcome | render timechart'
+
+// Single number for a metric alert to mirror: fail-open turns as a share of all pre-checks.
+var safetyFailOpenRate string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Outcome = tostring(customDimensions.outcome) | summarize Turns = sum(valueSum) by Outcome | extend Total = toscalar(customMetrics | where name == "agent.contentsafety.evaluations" | summarize sum(valueSum)) | where Outcome == "failopen" | project Metric = "Fail-open turns", Turns, Percent = round(100.0 * Turns / Total, 1)'
+
 var workbookContent = {
   version: version
   isLocked: isLocked
@@ -191,6 +198,32 @@ var workbookContent = {
         queryType: 0
         resourceType: 'microsoft.insights/components'
         visualization: 'table'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: safetyOutcomes
+        size: 0
+        title: 'Content Safety outcomes (fail-open = screening was skipped, not clean)'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'timechart'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: safetyFailOpenRate
+        size: 4
+        title: 'Fail-open rate (% of turns reaching the model unscreened)'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'tiles'
       }
     }
     {

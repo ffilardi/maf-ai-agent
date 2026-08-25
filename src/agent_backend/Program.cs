@@ -24,8 +24,8 @@ var agentOptions = AgentOptions.FromConfiguration(builder.Configuration);
 builder.Services.AddSingleton(agentOptions);
 
 // App Insights via the Azure Monitor OpenTelemetry distro; wired only when APPLICATIONINSIGHTS_CONNECTION_STRING is present.
-// AddSource/AddMeter pull in MAF's GenAI agent spans (AgentFactory.TelemetrySourceName) plus the FinOps token counters
-// (TokenUsageTelemetry.MeterName), which land in customMetrics and drive the "Token & Cost Insights" workbook.
+// AddSource/AddMeter pull in MAF's GenAI agent spans (AgentFactory.TelemetrySourceName), the FinOps token counters
+// (TokenUsageTelemetry.MeterName), and the Content Safety outcome counter, which land in customMetrics and drive the workbooks.
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
     builder.Services.AddOpenTelemetry()
@@ -33,7 +33,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
         .WithTracing(tracing => tracing.AddSource(AgentFactory.TelemetrySourceName))
         .WithMetrics(metrics => metrics
             .AddMeter(AgentFactory.TelemetrySourceName)
-            .AddMeter(TokenUsageTelemetry.MeterName));
+            .AddMeter(TokenUsageTelemetry.MeterName)
+            .AddMeter(ContentSafetyService.MeterName));
 }
 
 // CORS for the SPA (browser → backend directly); origins from ALLOWED_ORIGINS, empty list = no cross-origin access.

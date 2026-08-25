@@ -35,6 +35,11 @@ the Bicep defaults or passing `--parameters` to a manual `az deployment`.
 | Data lifecycle | Storage blob age-out policy | [`modules/storage/resources/account.bicep`](../infra/modules/storage/resources/account.bicep) | delete after `90` days |
 | Data lifecycle | Conversation transcript TTL | `MAX_HISTORY_TTL_DAYS` (backend) | `0` = never expire |
 | Token governance | APIM `llm-token-limit` / quotas + in-context compaction | [`apim/policies/foundry-api-policy.xml`](../infra/modules/apim/policies/foundry-api-policy.xml), backend | *pre-existing — see below* |
+| Spend guardrail | Per-request input cap | `MAX_INPUT_CHARS` (backend, `Endpoints/ChatEndpoints.cs`) | `10000` chars ⇒ 413 |
+| Spend guardrail | Per-request output ceiling | `MAX_OUTPUT_TOKENS` → `CreateResponseOptions.MaxOutputTokenCount` | `16384` |
+| Spend guardrail | Per-turn tool-call ceiling | `MAX_TOOL_CALLS_PER_TURN` → `CreateResponseOptions.MaxToolCallCount` | `8` |
+| Spend guardrail | Per-caller request limits | [`Configuration/RateLimiting.cs`](../src/agent_backend/Configuration/RateLimiting.cs) | chat 20/min (burst 5), upload 10/5 min |
+| Spend guardrail | Per-session attachment cap | `MAX_FILES_PER_SESSION` (backend, `Endpoints/FilesEndpoints.cs`) | `20` ⇒ 409 |
 
 ---
 
@@ -102,6 +107,33 @@ Set `-1` to disable the cap.
 [`resources/appinsights.bicep`](../infra/modules/monitor/resources/appinsights.bicep) exposes `samplingPercentage` (default **100** = keep all
 telemetry, best for a demo). Lower it (e.g. `50`) to cap telemetry ingestion cost as traffic grows —
 [`monitor.bicep`](../infra/modules/monitor/monitor.bicep) no longer forwards it, so tune it in the module directly.
+
+### Per-request and per-caller consumption limits
+
+APIM's `llm-token-limit` and `rate-limit-by-key` both key on `context.Subscription.Key`, which is the single shared
+backend key — so the 500K TPM bucket is *global*, and one abusive caller starves the whole deployment. These backend
+limits are what isolate callers. All are cost guardrails first and security controls second; each has a safe default,
+so none of them needs to be set for a normal deploy.
+
+| Lever | Env var | Default | Effect |
+| --- | --- | --- | --- |
+| Input size | `MAX_INPUT_CHARS` | `10000` | `413` before the turn starts. Matches Content Safety's own 10K screening cap, so no unscreened text reaches the model. |
+| Output size | `MAX_OUTPUT_TOKENS` | `16384` | Now a hard `max_output_tokens` on the request, not only a compaction reserve. |
+| Tool calls | `MAX_TOOL_CALLS_PER_TURN` | `8` | Bounds the RAG search loop — each call is an embedding + a semantic search + a passage dump into context. |
+| Attachments | `MAX_FILES_PER_SESSION` | `20` | `409` on `POST /files`. `MAX_UPLOAD_MB` bounds one file; this bounds Document Intelligence + embedding spend per conversation. |
+
+> **Watch `MAX_OUTPUT_TOKENS`.** Reasoning tokens count against `max_output_tokens`, so a `reasoningEffort: "high"`
+> turn spends part of the budget before emitting any answer text. If responses come back truncated with
+> `incomplete / max_output_tokens`, raise it — and raise `MAX_CONTEXT_WINDOW_TOKENS` with it, since their difference
+> is the compaction input budget.
+
+Request rates live in [`Configuration/RateLimiting.cs`](../src/agent_backend/Configuration/RateLimiting.cs) as constants
+(no env var): a `chat` token bucket of 20 turns/min with a burst of 5 on the two chat POSTs, an `upload` fixed window of
+10 per 5 minutes on `POST /files`, and a chained global concurrency + requests-per-minute backstop on everything except
+`/` and `/ping` (exempt so a global 429 can't mark the App Service unhealthy). All three partition on the conversation
+id, which the SPA mirrors into an `X-Session-Id` header because a rate-limit partitioner is synchronous and cannot read
+a POST body. That id is client-chosen, so **the global pair is the only limit an anonymous caller cannot re-key** —
+re-keying the APIM policies on a real caller identity is deferred until authentication exists.
 
 ## 3. Diagnostics cost control — `enableVerboseLogs`
 
@@ -198,6 +230,7 @@ remains the primary defense:
   visualizes, see §1).
 - **Backend**: `MAX_CONTEXT_WINDOW_TOKENS` / `MAX_OUTPUT_TOKENS` plus the in-context **compaction
   pipeline** (evicts old RAG tool-result dumps, then truncates oldest turns) cap input tokens per turn.
+  The per-request/per-caller ceilings added in §2 sit in front of all of this.
 
 ## Verifying the controls
 

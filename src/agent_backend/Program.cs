@@ -36,6 +36,9 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNEC
             .AddMeter(TokenUsageTelemetry.MeterName));
 }
 
+// Per-caller (conversation-partitioned) and global request limits; endpoints opt in via RequireRateLimiting.
+builder.Services.AddAgentRateLimiter();
+
 // CORS for the SPA (browser → backend directly); origins from ALLOWED_ORIGINS, empty list = no cross-origin access.
 const string FrontendCorsPolicy = "frontend";
 builder.Services.AddCors(options => options.AddPolicy(FrontendCorsPolicy, policy =>
@@ -117,7 +120,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Routing first so the limiter sees each endpoint's policy; CORS before it so a 429 carries the headers the SPA needs.
+app.UseRouting();
 app.UseCors(FrontendCorsPolicy);
+app.UseRateLimiter();
 
 // Route definitions live in Endpoints/*.cs; Program.cs stays a composition root.
 app.MapMetaEndpoints();

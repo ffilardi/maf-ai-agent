@@ -13,7 +13,8 @@ public static class FilesEndpoints
     public static void MapFilesEndpoints(this IEndpointRouteBuilder app)
     {
         // Form is read manually (no [FromForm]/IFormFile), so antiforgery doesn't apply; the SPA calls cross-origin.
-        app.MapPost("/files", PostFileAsync).DisableAntiforgery();
+        // Only the upload is rate-limited; the status route is polled every 2s and would self-inflict a 429.
+        app.MapPost("/files", PostFileAsync).DisableAntiforgery().RequireRateLimiting(RateLimiting.UploadPolicy);
         app.MapGet("/files", GetSessionFilesAsync);
         app.MapGet("/files/{fileId}", GetFileStatusAsync);
         app.MapGet("/files/{fileId}/content", GetFileContentAsync);
@@ -71,6 +72,17 @@ public static class FilesEndpoints
         if (file.Length > maxBytes)
         {
             return Results.Problem(statusCode: 413, detail: $"File exceeds the {options.MaxUploadMb} MB limit.");
+        }
+
+        // Attachment cap per conversation, checked before the body is materialised.
+        var statusStore = services.GetRequiredService<IngestionStatusStore>();
+        var existing = await statusStore.ListAsync(sessionId, ct);
+        if (existing.Count >= options.MaxFilesPerSession)
+        {
+            return Results.Problem(
+                statusCode: 409,
+                detail: $"This conversation already has {existing.Count} attachments (limit {options.MaxFilesPerSession}). "
+                    + "Remove one before uploading another.");
         }
 
         await using var stream = file.OpenReadStream();

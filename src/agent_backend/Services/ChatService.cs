@@ -229,7 +229,9 @@ public sealed class ChatService(
             // Null leaves the agent default in place; a value replaces it for this turn.
             ModelId = ResolveModel(request.Model),
             Instructions = await BuildInstructionsAsync(request, ct),
-            RawRepresentationFactory = _ => AgentFactory.BuildResponseOptions(request.ReasoningEffort),
+            // Re-applies the per-turn output/tool ceilings and tags the request with the conversation id (EndUserId).
+            RawRepresentationFactory = _ => AgentFactory.BuildResponseOptions(
+                request.ReasoningEffort, options.MaxOutputTokens, options.MaxToolCallsPerTurn, request.SessionId),
             AdditionalProperties = new AdditionalPropertiesDictionary
             {
                 [AgentFactory.SessionIdPropertyKey] = request.SessionId,

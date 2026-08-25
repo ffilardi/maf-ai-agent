@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { Bot, Check, Copy, Eraser, Wrench } from 'lucide-react';
-import { STREAM_URL, messageText, groupToolCalls, type ChatUIMessage } from '@/lib/backend';
+import {
+  MAX_INPUT_CHARS,
+  SESSION_HEADER,
+  STREAM_URL,
+  chatFetch,
+  messageText,
+  groupToolCalls,
+  type ChatUIMessage,
+} from '@/lib/backend';
 import { clearSession } from '@/lib/history';
 import { ACCEPT, PollCancelledError, pollFileStatus, uploadFile, validateFile, type FileAttachment } from '@/lib/files';
 import type { ReasoningEffort } from '@/lib/settings';
@@ -54,9 +62,13 @@ export function Chat({
     () =>
       new DefaultChatTransport<ChatUIMessage>({
         api: STREAM_URL,
+        // Turns a pre-stream 413/429/503 into a readable error for the banner below.
+        fetch: chatFetch,
         prepareSendMessagesRequest({ id, messages }) {
           const last = messages[messages.length - 1] as ChatUIMessage | undefined;
           return {
+            // The backend rate-limits per conversation and can't read the body to partition on it.
+            headers: { [SESSION_HEADER]: id },
             body: {
               sessionId: id,
               chatInput: last ? messageText(last) : '',
@@ -239,6 +251,7 @@ export function Chat({
           onStop={stop}
           busy={busy}
           disabled={indexing}
+          maxLength={MAX_INPUT_CHARS}
           placeholder="Waiting for file indexing…"
           onAttachFiles={addFiles}
           accept={ACCEPT}

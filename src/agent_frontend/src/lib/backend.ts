@@ -25,6 +25,38 @@ const ROOT = BACKEND_URL.replace(/\/$/, '');
 /** The streaming endpoint that speaks the AI SDK UI Message Stream protocol. */
 export const STREAM_URL = `${ROOT}/chat/stream`;
 
+/** Characters the backend accepts in one `chatInput` (mirrors `MAX_INPUT_CHARS`; over it the backend returns 413). */
+export const MAX_INPUT_CHARS = 10_000;
+
+/** Header the backend partitions its rate limits on (mirrors `RateLimiting.SessionHeader`), since it can't read the POST body to do it. */
+export const SESSION_HEADER = 'X-Session-Id';
+
+/** Renders an RFC 7807 problem response as a display message, folding in the server's `Retry-After` hint on a 429. */
+export async function problemMessage(response: Response, fallback: string): Promise<string> {
+  let detail = fallback;
+  try {
+    const problem = await response.json();
+    detail = problem.detail || problem.title || fallback;
+  } catch {
+    // Non-JSON body — keep the fallback.
+  }
+
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return `${detail} (retry in ${retryAfter}s)`;
+  }
+  return detail;
+}
+
+/** `fetch` for the chat transport: turns a pre-stream failure (413/429/503) into a readable message. */
+export const chatFetch: typeof fetch = async (input, init) => {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    throw new Error(await problemMessage(response, `The agent request failed (${response.status}).`));
+  }
+  return response;
+};
+
 /** Non-secret runtime config endpoint (selectable models + default model + default system prompt). */
 export const CONFIG_URL = `${ROOT}/config`;
 

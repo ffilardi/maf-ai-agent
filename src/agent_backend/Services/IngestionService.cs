@@ -1,4 +1,5 @@
 using System.Text;
+using AgentBackend.Configuration;
 using AgentBackend.Models;
 using Azure;
 
@@ -7,7 +8,8 @@ namespace AgentBackend.Services;
 /// <summary>
 /// The file-attachment RAG pipeline, split for async processing. <see cref="EnqueueAsync"/> (request path) persists the original,
 /// records a <c>processing</c> status, and enqueues so <c>POST /files</c> can answer 202. <see cref="ProcessAsync"/> (worker) downloads
-/// it, converts to markdown (Document Intelligence for binary/office/HTML, verbatim for text), chunks + embeds, and pushes the chunks tagged by <c>sessionId</c>.
+/// it, converts to markdown (Document Intelligence for binary/office/HTML, verbatim for text), screens for embedded instructions,
+/// chunks + embeds, and pushes the chunks tagged by <c>sessionId</c>.
 /// </summary>
 public sealed class IngestionService(
     StorageService storage,
@@ -16,8 +18,13 @@ public sealed class IngestionService(
     DocumentIntelligenceService documentIntelligence,
     EmbeddingService embeddings,
     SearchIndexer searchIndexer,
+    ContentSafetyService? contentSafety,
+    AgentOptions options,
     ILogger<IngestionService> logger)
 {
+    /// <summary>Status text stored (and shown in the SPA) when screening rejects a file; deliberately says nothing about the payload.</summary>
+    public const string RejectionMessage = "Blocked: the document contains embedded instructions targeting the assistant.";
+
     /// <summary>Request-path step: persist the original, mark it <c>processing</c>, enqueue it, and return the generated file id.</summary>
     /// <exception cref="AgentInvocationException">Blob/queue/table failed; carries the mapped HTTP status.</exception>
     public async Task<string> EnqueueAsync(
@@ -76,6 +83,7 @@ public sealed class IngestionService(
             $"{message.FileId}/{outputName}", BinaryData.FromString(text), outputContentType, ct);
 
         var chunks = MarkdownChunker.Chunk(text);
+        await ScreenAsync(message, chunks, ct);
         var vectors = await embeddings.EmbedAsync(chunks, ct);
 
         // Extension-stripped file name for the searchable fileNameText field: the extension is pure noise (the analyzer tokenizes "report.pdf" → "report","pdf", and "pdf" would then match every PDF).
@@ -99,6 +107,37 @@ public sealed class IngestionService(
 
         await searchIndexer.UploadAsync(documents, ct);
         return chunks.Count;
+    }
+
+    // Indirect prompt-injection screening, between chunking and indexing so a hostile file never reaches the index.
+    // Skipped when Content Safety isn't configured; in log mode the detection is recorded but the file still indexes.
+    private async Task ScreenAsync(IngestionMessage message, IReadOnlyList<string> chunks, CancellationToken ct)
+    {
+        if (contentSafety is null || chunks.Count == 0)
+        {
+            return;
+        }
+
+        var verdict = await contentSafety.EvaluateDocumentsAsync(chunks, ct);
+
+        if (verdict.AttackDetected)
+        {
+            logger.LogWarning(
+                "Prompt-injection screening flagged {FileName} ({FileId}) in session {SessionId}: mode={Mode}",
+                message.FileName, message.FileId, message.SessionId, options.ContentSafetyMode);
+
+            if (options.IsContentSafetyBlocking)
+            {
+                throw new IngestionRejectedException(RejectionMessage);
+            }
+        }
+        else if (!verdict.Evaluated)
+        {
+            // Same gap as the per-turn fail-open: the file is indexed unscreened, so make it auditable.
+            logger.LogWarning(
+                "Prompt-injection screening could not evaluate {FileName} ({FileId}) in session {SessionId}; indexing unscreened (fail-open).",
+                message.FileName, message.FileId, message.SessionId);
+        }
     }
 
     /// <summary>Removes a conversation's ingestion artifacts (search chunks, blobs, status rows) on delete. Best-effort: each step isolated, never throws, failures logged at Error.</summary>
@@ -157,3 +196,6 @@ public sealed class IngestionService(
         }
     }
 }
+
+/// <summary>A document rejected by screening. Terminal by nature, so the worker fails it at once instead of retrying.</summary>
+public sealed class IngestionRejectedException(string message) : Exception(message);

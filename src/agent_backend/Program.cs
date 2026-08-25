@@ -87,7 +87,17 @@ if (agentOptions.HasIngestionConfig)
     builder.Services.AddSingleton<IngestionStatusStore>();
     builder.Services.AddSingleton<DocumentIntelligenceService>();
     builder.Services.AddSingleton<SearchIndexer>();
-    builder.Services.AddSingleton<IngestionService>();
+    // Content Safety is optional here (unset ⇒ documents are indexed without prompt-injection screening).
+    builder.Services.AddSingleton<IngestionService>(sp => new IngestionService(
+        sp.GetRequiredService<StorageService>(),
+        sp.GetRequiredService<QueueService>(),
+        sp.GetRequiredService<IngestionStatusStore>(),
+        sp.GetRequiredService<DocumentIntelligenceService>(),
+        sp.GetRequiredService<EmbeddingService>(),
+        sp.GetRequiredService<SearchIndexer>(),
+        sp.GetService<ContentSafetyService>(),
+        agentOptions,
+        sp.GetRequiredService<ILogger<IngestionService>>()));
     // Create the container/queues/table/index once at startup, before the worker polls (StartAsync runs in registration order).
     builder.Services.AddHostedService<IngestionInitializer>();
     // Consumes the queue and runs the pipeline off the request path.

@@ -11,7 +11,7 @@ response's `usedTools` array.
 Content reaches the index two ways: a pre-existing index you populate yourself, and — new — **file
 attachments** users upload in the chat. The frontend's attachment button (paperclip in the composer) posts a
 document to the backend's `POST /files`, which persists it and **enqueues** it; a background worker runs the
-ingestion pipeline (Document Intelligence → chunk → embed → push) and the SPA polls the file's status,
+ingestion pipeline (Document Intelligence → chunk → screen → embed → push) and the SPA polls the file's status,
 keeping the prompt box locked until it's indexed (or fails). Each chunk is tagged with the conversation's
 `sessionId`, and the `SearchChatAttachments` tool filters retrieval to the current conversation — a document uploaded in one
 chat isn't retrieved in another. Retrieval is **hybrid** (keyword + vector): chunks are embedded with
@@ -145,14 +145,38 @@ runs `IngestionService.ProcessAsync`:
    here: DI's detected title paragraph (binary path) → the first markdown/text heading (`MarkdownTitle`) →
    the file name without its extension.
 5. **Chunk** — `MarkdownChunker` splits on markdown paragraph/heading boundaries (~512 tokens, ~10% overlap).
-6. **Embed** — `EmbeddingService` vectorizes the chunks with `text-embedding-3-large` (via APIM `/openai`).
-7. **Push** — upload the chunks (tagged with `title`/`fileName`/`sessionId`/`fileId`) to the index that
+6. **Screen** — the chunks go through Content Safety **Prompt Shields** for embedded instructions (below).
+7. **Embed** — `EmbeddingService` vectorizes the chunks with `text-embedding-3-large` (via APIM `/openai`).
+8. **Push** — upload the chunks (tagged with `title`/`fileName`/`sessionId`/`fileId`) to the index that
    `IngestionInitializer` already ensured at startup; finally the status is set to `indexed` (with the chunk
    count).
 
 The worker hides each message for a 5-minute visibility timeout while processing; a transient failure leaves
 the message to be redelivered (retry), and after 5 attempts it's marked `failed` and moved to a poison queue.
 Reprocessing is safe — chunk ids are deterministic (`{fileId}-{n}`), so a redelivered message overwrites.
+
+### Screening uploads for indirect prompt injection
+
+An uploaded document is untrusted input that ends up *inside the model's context*, so a file can carry
+instructions aimed at the assistant rather than content aimed at the reader ("ignore your instructions and…").
+The per-turn Content Safety check never sees this — the user's message is innocuous; the payload arrives
+through retrieval. So step 6 screens the extracted chunks through `text:shieldPrompt`'s **`documents`**
+channel, the parameter built for exactly this (`ContentSafetyService.EvaluateDocumentsAsync`, batches of 5,
+short-circuiting on the first detection).
+
+The screening runs **before embedding and indexing**, so a rejected file never becomes retrievable and never
+costs an embedding call. On detection with `CONTENT_SAFETY_MODE=block`, `IngestionService` throws
+`IngestionRejectedException`; the worker treats it as terminal — status `failed` with a fixed message
+("Blocked: the document contains embedded instructions targeting the assistant."), queue message deleted
+immediately rather than retried five times, since a re-run can only reach the same verdict. In `log` mode the
+detection is logged and the file still indexes, so the threshold can be tuned against real documents first.
+Screening is skipped entirely when Content Safety isn't configured (`CONTENT_SAFETY_MODE=off`).
+
+Like the per-turn check it **fails open**: if the screening call errors the file is indexed anyway, logged as
+a fail-open and counted as `stage=document, outcome=failopen` on `agent.contentsafety.evaluations`. The SPA
+needs no change — `failed` was already a terminal status it renders with the backend's own error text. The
+original blob is kept (the status row and the App Insights record name the file), but it is not in the index,
+so the model cannot reach it.
 
 **Status** — the SPA polls `GET /files/{fileId}?sessionId=...` every ~2s until `indexed` or `failed`, and
 keeps the prompt box locked while any attachment is still `processing` (failed uploads offer a retry). All

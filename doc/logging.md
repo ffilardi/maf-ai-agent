@@ -59,25 +59,36 @@ instead (below), where cardinality is free. The two together are what let the **
 workbook break tokens down by model *and* rank the heaviest conversations — see
 [`finops.md`](finops.md).
 
-### Content Safety outcome metric
+### Content Safety screening metric
 
 A third meter, `AgentBackend.ContentSafety` ([`ContentSafetyService.cs`](../src/agent_backend/Services/ContentSafetyService.cs)), emits
-`agent.contentsafety.evaluations` once per pre-check, tagged with a single `outcome` dimension:
+`agent.contentsafety.evaluations` once per screening, tagged with a `stage` and an `outcome` dimension:
+
+| `stage` | Screens | When |
+| --- | --- | --- |
+| `turn` | The user's message (`text:analyze` + `text:shieldPrompt`) | Every chat turn, before the model runs |
+| `document` | The chunks extracted from an upload (`text:shieldPrompt`'s `documents` channel) | Every ingestion, between chunking and indexing |
 
 | `outcome` | Meaning |
 | --- | --- |
 | `clean` | Screened, nothing at or above `CONTENT_SAFETY_THRESHOLD`, no prompt attack |
 | `flagged` | Screened and tripped — rejected in `block` mode, logged only in `log` mode |
-| `failopen` | **Not screened.** A `text:analyze` or `text:shieldPrompt` call errored and the turn was allowed through |
+| `failopen` | **Not screened.** A Content Safety call errored and the content was allowed through |
 
 `failopen` is the one that matters operationally: in `block` mode it means blocking was silently disabled
-for that turn. Three values is low enough cardinality to land in `customMetrics` and back a metric alert —
-fire on a sustained non-zero `failopen` rate. The **Agent Operations** workbook charts the split and shows
-the fail-open percentage as a tile.
+for that turn or that file. Six combinations is low enough cardinality to land in `customMetrics` and back a
+metric alert — fire on a sustained non-zero `failopen` rate. The **Agent Operations** workbook charts the
+stage/outcome split, shows the per-stage fail-open percentage as tiles, and lists the rejected uploads by name.
 
 Failing open is still the default, because a Content Safety outage taking chat down is usually the worse
 trade. Set `CONTENT_SAFETY_FAIL_CLOSED=true` (only meaningful alongside `CONTENT_SAFETY_MODE=block`) to
-invert that and reject unscreened turns with the normal block message.
+invert that and reject unscreened turns with the normal block message. Document screening has no fail-closed
+switch: the file is indexed and the gap logged, because an ingestion that silently fails is harder to notice
+than a turn that does.
+
+`stage=document, outcome=flagged` is the indirect prompt-injection control: the file is **never indexed**, its
+status row goes to `failed` with a fixed message, and the queue message is deleted immediately rather than
+retried (see [`rag.md`](rag.md)).
 
 > **Sensitive data is off by default.** `EnableSensitiveData = false` on the GenAI instrumentation means
 > **prompts, responses, and tool arguments/results are *not* written to traces** — spans still carry model
@@ -150,6 +161,9 @@ Every entry below flows to Application Insights as a `trace` with its structured
 | Content Safety detection | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | Flagged category severities + prompt-attack flag + mode (`log`/`block`), every mode |
 | Content Safety fail-open (API) | [`ContentSafetyService.cs`](../src/agent_backend/Services/ContentSafetyService.cs) | Warning | The failing `text:analyze` / `text:shieldPrompt` call itself |
 | Content Safety fail-open (turn) | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | The turn reached the model unscreened, with the effective `mode` and `failClosed` — paired with the `outcome=failopen` metric |
+| Prompt-injection detection (document) | [`IngestionService.cs`](../src/agent_backend/Services/IngestionService.cs) | Warning | An upload carried embedded instructions: file name, file id, session, mode — the durable record of what was rejected |
+| Prompt-injection fail-open (document) | [`IngestionService.cs`](../src/agent_backend/Services/IngestionService.cs) | Warning | The file was indexed unscreened because screening errored |
+| Ingestion rejection | [`QueueIngestionWorker.cs`](../src/agent_backend/Services/QueueIngestionWorker.cs) | Warning | The rejected file was marked `failed` and its message dropped without burning retries |
 | Stream last-resort | [`UiMessageStreamResult.cs`](../src/agent_backend/Endpoints/UiMessageStreamResult.cs) | Error | An exception after headers were committed; stream is still terminated with `[DONE]` |
 | Ingestion worker | [`QueueIngestionWorker.cs`](../src/agent_backend/Services/QueueIngestionWorker.cs) | Info / Warning / Error | Worker lifecycle, retries, poison-queue moves |
 | Ingestion pipeline | [`IngestionService.cs`](../src/agent_backend/Services/IngestionService.cs) | Error | Per-step ingestion failures (naming the session/file for manual cleanup) |
@@ -190,7 +204,7 @@ The filter runs **only on the store path** — the model still sees full tool re
 
 - **Prompt/response/tool text in traces** — off (`EnableSensitiveData = false`).
 - **RAG chunk text** — never in the audit manifest (identifiers + length only) and never persisted to Cosmos.
-- **Content Safety** — logs which categories/severities tripped, not the offending message content.
+- **Content Safety** — logs which categories/severities tripped, not the offending message content; a rejected upload is logged by file name and id, never by the instructions found in it.
 
 ## Local development
 
@@ -211,7 +225,7 @@ and Windows-only performance counters. The workbook is driven by KQL over the si
 and organizes it into sections — **request health** (rate, failures, P50/P95, per-route), **dependencies**
 (latency + failures split across the APIM gateway, Cosmos, and AI Search), the **RAG retrieval audit**
 (retrievals over time, top grounding sources, zero-hit turns), **Content Safety & reliability**
-(detections, outcome split, fail-open rate, persist failures, top exceptions), and the **GenAI spans** (LLM + tool operations). Token /
+(detections, stage/outcome split, fail-open rate, rejected uploads, persist failures, top exceptions), and the **GenAI spans** (LLM + tool operations). Token /
 cost showback lives in the sibling **Token & Cost Insights** workbook instead (see [`finops.md`](finops.md)),
 and the gateway's own health — per-API and per-endpoint success/failure, response-time percentiles,
 throttling, per-caller consumption — in the **API Gateway Operations** workbook (see
@@ -255,14 +269,27 @@ traces
 | order by timestamp desc
 ```
 
-**Turns that reached the model unscreened** (Content Safety failed open — in `block` mode, blocking was off):
+**Content reaching the model unscreened** (Content Safety failed open — in `block` mode, blocking was off):
 
 ```kusto
 customMetrics
 | where name == "agent.contentsafety.evaluations"
-| extend outcome = tostring(customDimensions.outcome)
-| summarize turns = sum(valueSum) by bin(timestamp, 15m), outcome
+| extend stage = tostring(customDimensions.stage), outcome = tostring(customDimensions.outcome)
+| summarize screenings = sum(valueSum) by bin(timestamp, 15m), series = strcat(stage, "/", outcome)
 | render timechart
+```
+
+**Uploads rejected for embedded instructions** (indirect prompt injection — the file was never indexed):
+
+```kusto
+traces
+| where message startswith "Prompt-injection screening flagged"
+| project timestamp,
+          fileName = tostring(customDimensions.FileName),
+          fileId = tostring(customDimensions.FileId),
+          sessionId = tostring(customDimensions.SessionId),
+          mode = tostring(customDimensions.Mode)
+| order by timestamp desc
 ```
 
 **GenAI agent spans** (LLM calls / tool invocations with token counts):

@@ -1,5 +1,5 @@
 // Azure Monitor Workbook — operational health for the backend agent, driven by KQL over the app's telemetry
-// (request health, per-backend dependencies, RAG audit trail, Content Safety detections, persist failures, MAF GenAI spans). Cost/token showback lives in workbook.bicep.
+// (request health, per-backend dependencies, RAG audit trail, Content Safety screening, persist failures, MAF GenAI spans). Cost/token showback lives in workbook.bicep.
 @description('Azure region for the workbook.')
 param location string = resourceGroup().location
 
@@ -27,12 +27,16 @@ param isLocked bool = false
 @description('Display name shown for the workbook.')
 param displayName string = 'Agent Operations'
 
-// The Content Safety outcome counter (ContentSafetyService). `failopen` means the pre-check errored and the turn was
-// allowed through unscreened — in block mode that is blocking silently disabled, which is the whole point of the tile.
-var safetyOutcomes string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Outcome = tostring(customDimensions.outcome) | summarize Turns = sum(valueSum) by bin(timestamp, 15m), Outcome | render timechart'
+// The Content Safety screening counter (ContentSafetyService), split by stage: `turn` is the per-message pre-check,
+// `document` is prompt-injection screening of an upload. `failopen` means screening errored and the content was allowed
+// through unscreened — in block mode that is blocking silently disabled, which is the whole point of the tile.
+var safetyOutcomes string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Stage = tostring(customDimensions.stage), Outcome = tostring(customDimensions.outcome) | summarize Screenings = sum(valueSum) by bin(timestamp, 15m), Series = strcat(Stage, "/", Outcome) | render timechart'
 
-// Single number for a metric alert to mirror: fail-open turns as a share of all pre-checks.
-var safetyFailOpenRate string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Outcome = tostring(customDimensions.outcome) | summarize Turns = sum(valueSum) by Outcome | extend Total = toscalar(customMetrics | where name == "agent.contentsafety.evaluations" | summarize sum(valueSum)) | where Outcome == "failopen" | project Metric = "Fail-open turns", Turns, Percent = round(100.0 * Turns / Total, 1)'
+// Two numbers for a metric alert to mirror: fail-open share of turn screenings and of document screenings.
+var safetyFailOpenRate string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Stage = tostring(customDimensions.stage), Outcome = tostring(customDimensions.outcome) | summarize Screenings = sum(valueSum) by Stage, Outcome | summarize Total = sum(Screenings), FailOpen = sumif(Screenings, Outcome == "failopen") by Stage | where Total > 0 | project Metric = strcat("Fail-open ", Stage, "s"), FailOpen, Percent = round(100.0 * FailOpen / Total, 1)'
+
+// Per-file audit of uploads rejected for embedded instructions; the metric counts them, this names them.
+var documentRejections string = 'traces | where message startswith "Prompt-injection screening flagged" | project timestamp, FileName = tostring(customDimensions.FileName), FileId = tostring(customDimensions.FileId), SessionId = tostring(customDimensions.SessionId), Mode = tostring(customDimensions.Mode) | order by timestamp desc | take 50'
 
 var workbookContent = {
   version: version
@@ -206,7 +210,7 @@ var workbookContent = {
         version: 'KqlItem/1.0'
         query: safetyOutcomes
         size: 0
-        title: 'Content Safety outcomes (fail-open = screening was skipped, not clean)'
+        title: 'Content Safety screenings by stage/outcome (fail-open = screening was skipped, not clean)'
         timeContextFromParameter: 'TimeRange'
         queryType: 0
         resourceType: 'microsoft.insights/components'
@@ -219,11 +223,24 @@ var workbookContent = {
         version: 'KqlItem/1.0'
         query: safetyFailOpenRate
         size: 4
-        title: 'Fail-open rate (% of turns reaching the model unscreened)'
+        title: 'Fail-open rate (% reaching the model unscreened)'
         timeContextFromParameter: 'TimeRange'
         queryType: 0
         resourceType: 'microsoft.insights/components'
         visualization: 'tiles'
+      }
+    }
+    {
+      type: 3
+      content: {
+        version: 'KqlItem/1.0'
+        query: documentRejections
+        size: 0
+        title: 'Uploads rejected for embedded instructions (indirect prompt injection)'
+        timeContextFromParameter: 'TimeRange'
+        queryType: 0
+        resourceType: 'microsoft.insights/components'
+        visualization: 'table'
       }
     }
     {

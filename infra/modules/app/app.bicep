@@ -143,6 +143,11 @@ var appSettings = [
     value: !empty(apim.name) ? apim.properties.gatewayUrl : ''
   }
   {
+    // Withhold the effective base prompt from GET /config: it hands an unauthenticated caller the tool contract to craft around.
+    name: 'EXPOSE_DEFAULT_PROMPT'
+    value: 'false'
+  }
+  {
     // Content Safety per-turn pre-check; deployed in `block` mode (reject flagged turns) with Prompt Shields on.
     // Drop to `log` (analyze + log, never block) to observe/tune before enforcing.
     name: 'CONTENT_SAFETY_MODE'

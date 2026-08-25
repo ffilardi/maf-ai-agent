@@ -161,6 +161,7 @@ Every entry below flows to Application Insights as a `trace` with its structured
 | RAG failure | [`SearchAdapter.cs`](../src/agent_backend/Services/SearchAdapter.cs) | Warning | A caught search failure (degrades to ungrounded) — no longer swallowed silently |
 | Token usage audit | [`TokenUsageTelemetry.cs`](../src/agent_backend/Services/TokenUsageTelemetry.cs) | Information | Per-turn `sessionId`, `model`, `streaming` and the prompt/completion/total/cached/reasoning token counts — the high-cardinality half of the cost telemetry |
 | Chat persist failure | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Error | Model answered but the end-of-turn Cosmos history write failed — *the turn was not saved* |
+| System prompt override | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Information | A per-request `systemPrompt` was accepted or ignored: session + character count, **never the text** |
 | Content Safety detection | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | Flagged category severities + prompt-attack flag + mode (`log`/`block`), every mode |
 | Content Safety fail-open (API) | [`ContentSafetyService.cs`](../src/agent_backend/Services/ContentSafetyService.cs) | Warning | The failing `text:analyze` / `text:shieldPrompt` call itself |
 | Content Safety fail-open (turn) | [`ChatService.cs`](../src/agent_backend/Services/ChatService.cs) | Warning | The turn reached the model unscreened, with the effective `mode` and `failClosed` — paired with the `outcome=failopen` metric |
@@ -207,6 +208,7 @@ The filter runs **only on the store path** — the model still sees full tool re
 - **Prompt/response/tool text in traces** — off (`EnableSensitiveData = false`).
 - **RAG chunk text** — never in the audit manifest (identifiers + length only) and never persisted to Cosmos.
 - **Content Safety** — logs which categories/severities tripped, not the offending message content; a flagged upload passage is logged by file name, id, chunk index, and length, never by the text found in it.
+- **System prompt overrides** — logged by length and session id only; the prompt text itself is never written to traces.
 
 ## Local development
 

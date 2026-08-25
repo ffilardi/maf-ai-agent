@@ -37,7 +37,7 @@ public sealed class ChatService(
     /// </exception>
     public async Task<ChatResponse> AskAsync(ChatRequest request, CancellationToken ct)
     {
-        var block = await CheckContentSafetyAsync(request.ChatInput, request.SessionId, ct);
+        var block = await CheckContentSafetyAsync(request, ct);
         if (block is not null)
         {
             throw new AgentInvocationException(403, block);
@@ -72,7 +72,7 @@ public sealed class ChatService(
         ChatRequest request, [EnumeratorCancellation] CancellationToken ct)
     {
         // Content Safety pre-check before streaming begins; a block is surfaced as an in-band `error` part.
-        var block = await CheckContentSafetyAsync(request.ChatInput, request.SessionId, ct);
+        var block = await CheckContentSafetyAsync(request, ct);
         if (block is not null)
         {
             yield return new UiStreamPart("start");
@@ -254,7 +254,7 @@ public sealed class ChatService(
     // back on the agent default) so Layer-0 safety survives a custom prompt replacing the base.
     private async Task<string> BuildInstructionsAsync(ChatRequest request, CancellationToken ct)
     {
-        var systemPrompt = ResolveSystemPrompt(request.SystemPrompt);
+        var systemPrompt = ResolveSystemPrompt(request);
         var baseInstructions = systemPrompt
             ?? options.AgentInstructions
             ?? (request.RagOnly ? AgentFactory.GroundedOnlyInstructions : AgentFactory.DefaultAgentInstructions);
@@ -294,18 +294,46 @@ public sealed class ChatService(
     }
 
     // Accept a non-blank per-session prompt, trimmed and length-capped; blank ⇒ null (agent default applies).
-    private static string? ResolveSystemPrompt(string? prompt)
+    // Ignored entirely when ALLOW_SYSTEM_PROMPT_OVERRIDE is off. Either way the decision is audited by length, never by text.
+    private string? ResolveSystemPrompt(ChatRequest request)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (string.IsNullOrWhiteSpace(request.SystemPrompt))
         {
             return null;
         }
-        var trimmed = prompt.Trim();
-        return trimmed.Length > MaxSystemPromptChars ? trimmed[..MaxSystemPromptChars] : trimmed;
+
+        if (!options.AllowSystemPromptOverride)
+        {
+            logger.LogInformation(
+                "System prompt override ignored for session {SessionId} ({PromptChars} chars): overrides are disabled.",
+                request.SessionId, request.SystemPrompt.Length);
+            return null;
+        }
+
+        var trimmed = request.SystemPrompt.Trim();
+        var prompt = trimmed.Length > MaxSystemPromptChars ? trimmed[..MaxSystemPromptChars] : trimmed;
+        logger.LogInformation(
+            "System prompt override accepted for session {SessionId}: {PromptChars} chars.", request.SessionId, prompt.Length);
+        return prompt;
     }
 
-    // Content Safety pre-check for a turn: returns a block message when rejected, else null. Everything is logged in every mode.
-    private async Task<string?> CheckContentSafetyAsync(string input, string sessionId, CancellationToken ct)
+    // Content Safety pre-check for a turn: screens the user message and, when in play, the system-prompt override.
+    // Returns a block message when rejected, else null. Everything is logged in every mode.
+    private async Task<string?> CheckContentSafetyAsync(ChatRequest request, CancellationToken ct)
+    {
+        var block = await ScreenAsync(request.ChatInput, request.SessionId, "message", ct);
+        if (block is not null)
+        {
+            return block;
+        }
+
+        // The override replaces the agent's own instructions, so leaving it unscreened is a clean bypass of the pre-check.
+        var systemPrompt = options.AllowSystemPromptOverride ? request.SystemPrompt : null;
+        return await ScreenAsync(systemPrompt, request.SessionId, "system prompt", ct);
+    }
+
+    // Screens one piece of caller-supplied text; `source` names it in the log so the two fields stay distinguishable.
+    private async Task<string?> ScreenAsync(string? input, string sessionId, string source, CancellationToken ct)
     {
         if (contentSafety is null || string.IsNullOrWhiteSpace(input))
         {
@@ -320,8 +348,8 @@ public sealed class ChatService(
                 .Where(c => c.Severity >= options.ContentSafetyThreshold)
                 .Select(c => $"{c.Category}={c.Severity}"));
             logger.LogWarning(
-                "Content safety flagged session {SessionId}: categories=[{Categories}] promptAttack={Attack} mode={Mode}",
-                sessionId, categories, verdict.PromptAttackDetected, options.ContentSafetyMode);
+                "Content safety flagged the {Source} in session {SessionId}: categories=[{Categories}] promptAttack={Attack} mode={Mode}",
+                source, sessionId, categories, verdict.PromptAttackDetected, options.ContentSafetyMode);
 
             return options.IsContentSafetyBlocking ? ContentSafetyBlockMessage : null;
         }
@@ -331,8 +359,8 @@ public sealed class ChatService(
         if (!verdict.Evaluated)
         {
             logger.LogWarning(
-                "Content safety could not evaluate session {SessionId}: allowing unscreened (fail-open) mode={Mode} failClosed={FailClosed}",
-                sessionId, options.ContentSafetyMode, options.ContentSafetyFailClosed);
+                "Content safety could not evaluate the {Source} in session {SessionId}: allowing unscreened (fail-open) mode={Mode} failClosed={FailClosed}",
+                source, sessionId, options.ContentSafetyMode, options.ContentSafetyFailClosed);
 
             return options.IsContentSafetyFailClosed ? ContentSafetyBlockMessage : null;
         }

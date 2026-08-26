@@ -36,7 +36,7 @@ var safetyOutcomes string = 'customMetrics | where name == "agent.contentsafety.
 var safetyFailOpenRate string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Stage = tostring(customDimensions.stage), Outcome = tostring(customDimensions.outcome) | summarize Screenings = sum(valueSum) by Stage, Outcome | summarize Total = sum(Screenings), FailOpen = sumif(Screenings, Outcome == "failopen") by Stage | where Total > 0 | project Metric = strcat("Fail-open ", Stage, "s"), FailOpen, Percent = round(100.0 * FailOpen / Total, 1)'
 
 // Per-file audit of uploads rejected for embedded instructions; the metric counts them, this names them.
-var documentRejections string = 'traces | where message startswith "Prompt-injection screening flagged" | project timestamp, FileName = tostring(customDimensions.FileName), FileId = tostring(customDimensions.FileId), SessionId = tostring(customDimensions.SessionId), Mode = tostring(customDimensions.Mode) | order by timestamp desc | take 50'
+var documentRejections string = 'traces | where message startswith "Prompt-injection screening flagged" | project timestamp, FileName = tostring(customDimensions.FileName), FileId = tostring(customDimensions.FileId), SessionId = tostring(customDimensions.SessionId), Chunk = tostring(customDimensions.ChunkIndex), Chunks = tostring(customDimensions.ChunkCount), Mode = tostring(customDimensions.Mode) | order by timestamp desc | take 50'
 
 var workbookContent = {
   version: version

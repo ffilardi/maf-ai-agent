@@ -122,9 +122,14 @@ public sealed class IngestionService(
 
         if (verdict.AttackDetected)
         {
+            // Chunk index + length, never the passage: enough to locate it in the stored output.{ext} for triage.
+            var chunkChars = verdict.FlaggedIndex >= 0 && verdict.FlaggedIndex < chunks.Count
+                ? chunks[verdict.FlaggedIndex].Length
+                : 0;
             logger.LogWarning(
-                "Prompt-injection screening flagged {FileName} ({FileId}) in session {SessionId}: mode={Mode}",
-                message.FileName, message.FileId, message.SessionId, options.ContentSafetyMode);
+                "Prompt-injection screening flagged {FileName} ({FileId}) in session {SessionId}: chunk {ChunkIndex} of {ChunkCount} ({ChunkChars} chars) mode={Mode}",
+                message.FileName, message.FileId, message.SessionId,
+                verdict.FlaggedIndex, chunks.Count, chunkChars, options.ContentSafetyMode);
 
             if (options.IsContentSafetyBlocking)
             {

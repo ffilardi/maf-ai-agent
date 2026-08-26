@@ -172,6 +172,10 @@ immediately rather than retried five times, since a re-run can only reach the sa
 detection is logged and the file still indexes, so the threshold can be tuned against real documents first.
 Screening is skipped entirely when Content Safety isn't configured (`CONTENT_SAFETY_MODE=off`).
 
+A rejection is logged with the offending **chunk index** (and the total chunk count) but never the passage
+itself — pair it with the file's stored `output.{ext}` to see exactly what tripped, without putting document
+text into App Insights.
+
 Like the per-turn check it **fails open**: if the screening call errors the file is indexed anyway, logged as
 a fail-open and counted as `stage=document, outcome=failopen` on `agent.contentsafety.evaluations`. The SPA
 needs no change — `failed` was already a terminal status it renders with the backend's own error text. The

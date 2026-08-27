@@ -93,20 +93,22 @@ public sealed class ContentSafetyService : IDisposable
 
     /// <summary>
     /// The screening result for one ingested document. <see cref="Evaluated"/> has the same meaning as on
-    /// <see cref="Verdict"/>: false means at least one batch failed open, so "no attack" is not a clean bill of health.
-    /// <see cref="FlaggedIndex"/> is the offending chunk's position (-1 when nothing tripped), so a rejection can be
-    /// traced back to a specific passage without ever logging the passage itself.
+    /// <see cref="Verdict"/>: false means at least one batch failed open, so "no flags" is not a clean bill of health.
+    /// <see cref="FlaggedIndexes"/> holds every offending chunk's position, so each one can be reported and reviewed
+    /// without ever logging the passage itself.
     /// </summary>
-    public sealed record DocumentVerdict(bool AttackDetected, bool Evaluated, int FlaggedIndex = -1);
+    public sealed record DocumentVerdict(IReadOnlyList<int> FlaggedIndexes, bool Evaluated);
 
     /// <summary>
     /// Screens extracted document text through Prompt Shields' <c>documents</c> channel — the indirect-attack detector,
     /// which catches instructions embedded in an uploaded file that the per-turn user-prompt check never looks at.
-    /// Batched to <see cref="DocumentBatchSize"/> and short-circuits on the first detection. Never throws (fails open).
+    /// Batched to <see cref="DocumentBatchSize"/>. Screens <b>every</b> chunk rather than stopping at the first hit, so
+    /// the caller gets the complete list to review. Never throws (fails open).
     /// </summary>
     public async Task<DocumentVerdict> EvaluateDocumentsAsync(IReadOnlyList<string> documents, CancellationToken ct)
     {
         var evaluated = true;
+        var flagged = new List<int>();
 
         for (var offset = 0; offset < documents.Count; offset += DocumentBatchSize)
         {
@@ -116,19 +118,13 @@ public sealed class ContentSafetyService : IDisposable
                 .Select(d => d.Length > MaxTextChars ? d[..MaxTextChars] : d)
                 .ToArray();
 
-            var (batchEvaluated, flaggedIndex) = await ShieldDocumentsAsync(batch, ct);
+            var (batchEvaluated, batchFlagged) = await ShieldDocumentsAsync(batch, ct);
             evaluated &= batchEvaluated;
-
-            // One hostile passage condemns the whole file, so stop screening the rest.
-            if (flaggedIndex >= 0)
-            {
-                RecordOutcome(DocumentStage, "flagged");
-                return new DocumentVerdict(true, true, offset + flaggedIndex);
-            }
+            flagged.AddRange(batchFlagged.Select(i => offset + i));
         }
 
-        RecordOutcome(DocumentStage, evaluated ? "clean" : "failopen");
-        return new DocumentVerdict(false, evaluated);
+        RecordOutcome(DocumentStage, flagged.Count > 0 ? "flagged" : evaluated ? "clean" : "failopen");
+        return new DocumentVerdict(flagged, evaluated);
     }
 
     // Telemetry must never fail a served turn (mirrors TokenUsageTelemetry).
@@ -196,8 +192,9 @@ public sealed class ContentSafetyService : IDisposable
     }
 
     // text:shieldPrompt with an empty userPrompt: documentsAnalysis carries one attackDetected verdict per document.
-    // Returns the first flagged position within the batch, or -1 for none.
-    private async Task<(bool Evaluated, int FlaggedIndex)> ShieldDocumentsAsync(string[] documents, CancellationToken ct)
+    // Returns every flagged position within the batch.
+    private async Task<(bool Evaluated, IReadOnlyList<int> FlaggedIndexes)> ShieldDocumentsAsync(
+        string[] documents, CancellationToken ct)
     {
         try
         {
@@ -205,24 +202,25 @@ public sealed class ContentSafetyService : IDisposable
 
             if (!doc.RootElement.TryGetProperty("documentsAnalysis", out var analysis))
             {
-                return (true, -1);
+                return (true, Array.Empty<int>());
             }
 
+            var flagged = new List<int>();
             var index = 0;
             foreach (var entry in analysis.EnumerateArray())
             {
                 if (entry.TryGetProperty("attackDetected", out var detected) && detected.GetBoolean())
                 {
-                    return (true, index);
+                    flagged.Add(index);
                 }
                 index++;
             }
-            return (true, -1);
+            return (true, flagged);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Content Safety document screening failed; treating as no attack (fail-open).");
-            return (false, -1);
+            return (false, Array.Empty<int>());
         }
     }
 

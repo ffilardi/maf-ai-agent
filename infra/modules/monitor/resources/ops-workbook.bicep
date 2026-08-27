@@ -27,16 +27,18 @@ param isLocked bool = false
 @description('Display name shown for the workbook.')
 param displayName string = 'Agent Operations'
 
-// The Content Safety screening counter (ContentSafetyService), split by stage: `turn` is the per-message pre-check,
-// `document` is prompt-injection screening of an upload. `failopen` means screening errored and the content was allowed
-// through unscreened — in block mode that is blocking silently disabled, which is the whole point of the tile.
+// The Content Safety screening counter (ContentSafetyService), split by stage: `turn` is the per-message pre-check
+// (which can block), `document` is detective-only prompt-injection screening of an upload. `failopen` means screening
+// errored and the content was allowed through unscreened — for turns in block mode that is blocking silently disabled.
 var safetyOutcomes string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Stage = tostring(customDimensions.stage), Outcome = tostring(customDimensions.outcome) | summarize Screenings = sum(valueSum) by bin(timestamp, 15m), Series = strcat(Stage, "/", Outcome) | render timechart'
 
 // Two numbers for a metric alert to mirror: fail-open share of turn screenings and of document screenings.
 var safetyFailOpenRate string = 'customMetrics | where name == "agent.contentsafety.evaluations" | extend Stage = tostring(customDimensions.stage), Outcome = tostring(customDimensions.outcome) | summarize Screenings = sum(valueSum) by Stage, Outcome | summarize Total = sum(Screenings), FailOpen = sumif(Screenings, Outcome == "failopen") by Stage | where Total > 0 | project Metric = strcat("Fail-open ", Stage, "s"), FailOpen, Percent = round(100.0 * FailOpen / Total, 1)'
 
-// Per-file audit of uploads rejected for embedded instructions; the metric counts them, this names them.
-var documentRejections string = 'traces | where message startswith "Prompt-injection screening flagged" | project timestamp, FileName = tostring(customDimensions.FileName), FileId = tostring(customDimensions.FileId), SessionId = tostring(customDimensions.SessionId), Chunk = tostring(customDimensions.ChunkIndex), Chunks = tostring(customDimensions.ChunkCount), Mode = tostring(customDimensions.Mode) | order by timestamp desc | take 50'
+// Per-passage review queue. Screening is detective only: every flagged chunk is indexed anyway, so this table is the
+// place a human confirms or dismisses a hit. DocumentId is the search key, so a confirmed hit can be traced to the
+// exact indexed chunk; delete the whole attachment (DELETE /files/{fileId}) to remove it.
+var documentDetections string = 'traces | where message startswith "Prompt-injection screening flagged" | project timestamp, FileName = tostring(customDimensions.FileName), FileId = tostring(customDimensions.FileId), SessionId = tostring(customDimensions.SessionId), Chunk = tostring(customDimensions.ChunkIndex), Chunks = tostring(customDimensions.ChunkCount), Chars = tostring(customDimensions.ChunkChars), DocumentId = tostring(customDimensions.DocumentId) | order by timestamp desc | take 50'
 
 var workbookContent = {
   version: version
@@ -234,9 +236,9 @@ var workbookContent = {
       type: 3
       content: {
         version: 'KqlItem/1.0'
-        query: documentRejections
+        query: documentDetections
         size: 0
-        title: 'Uploads rejected for embedded instructions (indirect prompt injection)'
+        title: 'Flagged passages for review (indirect prompt injection — indexed, not blocked)'
         timeContextFromParameter: 'TimeRange'
         queryType: 0
         resourceType: 'microsoft.insights/components'

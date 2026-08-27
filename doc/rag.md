@@ -145,7 +145,8 @@ runs `IngestionService.ProcessAsync`:
    here: DI's detected title paragraph (binary path) → the first markdown/text heading (`MarkdownTitle`) →
    the file name without its extension.
 5. **Chunk** — `MarkdownChunker` splits on markdown paragraph/heading boundaries (~512 tokens, ~10% overlap).
-6. **Screen** — the chunks go through Content Safety **Prompt Shields** for embedded instructions (below).
+6. **Screen** — the chunks go through Content Safety **Prompt Shields** for embedded instructions (below);
+   detection is recorded for review, nothing is withheld from the index.
 7. **Embed** — `EmbeddingService` vectorizes the chunks with `text-embedding-3-large` (via APIM `/openai`).
 8. **Push** — upload the chunks (tagged with `title`/`fileName`/`sessionId`/`fileId`) to the index that
    `IngestionInitializer` already ensured at startup; finally the status is set to `indexed` (with the chunk
@@ -161,26 +162,28 @@ An uploaded document is untrusted input that ends up *inside the model's context
 instructions aimed at the assistant rather than content aimed at the reader ("ignore your instructions and…").
 The per-turn Content Safety check never sees this — the user's message is innocuous; the payload arrives
 through retrieval. So step 6 screens the extracted chunks through `text:shieldPrompt`'s **`documents`**
-channel, the parameter built for exactly this (`ContentSafetyService.EvaluateDocumentsAsync`, batches of 5,
-short-circuiting on the first detection).
+channel, the parameter built for exactly this (`ContentSafetyService.EvaluateDocumentsAsync`, batches of 5).
 
-The screening runs **before embedding and indexing**, so a rejected file never becomes retrievable and never
-costs an embedding call. On detection with `CONTENT_SAFETY_MODE=block`, `IngestionService` throws
-`IngestionRejectedException`; the worker treats it as terminal — status `failed` with a fixed message
-("Blocked: the document contains embedded instructions targeting the assistant."), queue message deleted
-immediately rather than retried five times, since a re-run can only reach the same verdict. In `log` mode the
-detection is logged and the file still indexes, so the threshold can be tuned against real documents first.
-Screening is skipped entirely when Content Safety isn't configured (`CONTENT_SAFETY_MODE=off`).
+Screening is **detective, not preventive**: every chunk is screened, every detection is reported, and the file
+is indexed in full regardless. Nothing is rejected, quarantined, or withheld. That is a deliberate choice —
+Prompt Shields' `documents` channel returns a bare boolean with no severity or confidence, so there is no
+threshold to tune, and it is tuned for short retrieved passages: ordinary imperative security prose ("the user
+must type the number displayed on the phone to gain access") reads to it like an injected instruction. Blocking
+on that boolean would make routine technical documents unusable. The tradeoff is explicit — a genuine injection
+does reach model context, and review happens after the fact.
 
-A rejection is logged with the offending **chunk index** (and the total chunk count) but never the passage
-itself — pair it with the file's stored `output.{ext}` to see exactly what tripped, without putting document
-text into App Insights.
+Every flagged chunk is therefore logged, one Warning per passage, carrying the file name, file id, session,
+**chunk index** and count, the chunk length, and the **search document id** (`{fileId}-{n}`) — but never the
+passage text itself. Pair the index with the file's stored `output.{ext}` blob to read exactly what tripped,
+without putting document text into App Insights. The **Agent Operations** workbook surfaces these as the
+"Flagged passages for review" table; if a hit is confirmed hostile, delete the whole attachment
+(`DELETE /files/{fileId}`), which purges its chunks, blobs, and status row.
 
-Like the per-turn check it **fails open**: if the screening call errors the file is indexed anyway, logged as
-a fail-open and counted as `stage=document, outcome=failopen` on `agent.contentsafety.evaluations`. The SPA
-needs no change — `failed` was already a terminal status it renders with the backend's own error text. The
-original blob is kept (the status row and the App Insights record name the file), but it is not in the index,
-so the model cannot reach it.
+Screening never blocks and never fails a file. It is skipped entirely when Content Safety isn't configured
+(`CONTENT_SAFETY_MODE=off`); `log` and `block` behave identically here, since `CONTENT_SAFETY_MODE` governs
+only the per-turn check. Like the per-turn check it **fails open**: if the screening call errors the file is
+indexed anyway, logged as a fail-open and counted as `stage=document, outcome=failopen` on
+`agent.contentsafety.evaluations` — so "no detections" and "never screened" stay distinguishable.
 
 **Status** — the SPA polls `GET /files/{fileId}?sessionId=...` every ~2s until `indexed` or `failed`, and
 keeps the prompt box locked while any attachment is still `processing` (failed uploads offer a retry). All

@@ -1,5 +1,4 @@
 using System.Text;
-using AgentBackend.Configuration;
 using AgentBackend.Models;
 using Azure;
 
@@ -19,11 +18,8 @@ public sealed class IngestionService(
     EmbeddingService embeddings,
     SearchIndexer searchIndexer,
     ContentSafetyService? contentSafety,
-    AgentOptions options,
     ILogger<IngestionService> logger)
 {
-    /// <summary>Status text stored (and shown in the SPA) when screening rejects a file; deliberately says nothing about the payload.</summary>
-    public const string RejectionMessage = "Blocked: the document contains embedded instructions targeting the assistant.";
 
     /// <summary>Request-path step: persist the original, mark it <c>processing</c>, enqueue it, and return the generated file id.</summary>
     /// <exception cref="AgentInvocationException">Blob/queue/table failed; carries the mapped HTTP status.</exception>
@@ -109,8 +105,8 @@ public sealed class IngestionService(
         return chunks.Count;
     }
 
-    // Indirect prompt-injection screening, between chunking and indexing so a hostile file never reaches the index.
-    // Skipped when Content Safety isn't configured; in log mode the detection is recorded but the file still indexes.
+    // Indirect prompt-injection screening, run before indexing. Detective only: nothing is rejected or withheld, every
+    // flagged passage is reported for review. Skipped when Content Safety isn't configured. Never throws.
     private async Task ScreenAsync(IngestionMessage message, IReadOnlyList<string> chunks, CancellationToken ct)
     {
         if (contentSafety is null || chunks.Count == 0)
@@ -120,25 +116,19 @@ public sealed class IngestionService(
 
         var verdict = await contentSafety.EvaluateDocumentsAsync(chunks, ct);
 
-        if (verdict.AttackDetected)
+        // One line per flagged passage, each naming its search document id so a confirmed hit can be acted on directly.
+        // Identifiers and lengths only, never the passage text — it stays in the file's stored output blob.
+        foreach (var index in verdict.FlaggedIndexes)
         {
-            // Chunk index + length, never the passage: enough to locate it in the stored output.{ext} for triage.
-            var chunkChars = verdict.FlaggedIndex >= 0 && verdict.FlaggedIndex < chunks.Count
-                ? chunks[verdict.FlaggedIndex].Length
-                : 0;
             logger.LogWarning(
-                "Prompt-injection screening flagged {FileName} ({FileId}) in session {SessionId}: chunk {ChunkIndex} of {ChunkCount} ({ChunkChars} chars) mode={Mode}",
+                "Prompt-injection screening flagged a passage in {FileName} ({FileId}) session {SessionId}: chunk {ChunkIndex} of {ChunkCount} ({ChunkChars} chars), search document {DocumentId}. Indexed anyway — review it and delete the attachment if the content is hostile.",
                 message.FileName, message.FileId, message.SessionId,
-                verdict.FlaggedIndex, chunks.Count, chunkChars, options.ContentSafetyMode);
-
-            if (options.IsContentSafetyBlocking)
-            {
-                throw new IngestionRejectedException(RejectionMessage);
-            }
+                index, chunks.Count, chunks[index].Length, $"{message.FileId}-{index}");
         }
-        else if (!verdict.Evaluated)
+
+        if (!verdict.Evaluated)
         {
-            // Same gap as the per-turn fail-open: the file is indexed unscreened, so make it auditable.
+            // Same gap as the per-turn fail-open: screening errored, so the file is indexed unscreened.
             logger.LogWarning(
                 "Prompt-injection screening could not evaluate {FileName} ({FileId}) in session {SessionId}; indexing unscreened (fail-open).",
                 message.FileName, message.FileId, message.SessionId);
@@ -201,6 +191,3 @@ public sealed class IngestionService(
         }
     }
 }
-
-/// <summary>A document rejected by screening. Terminal by nature, so the worker fails it at once instead of retrying.</summary>
-public sealed class IngestionRejectedException(string message) : Exception(message);

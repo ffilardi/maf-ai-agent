@@ -96,7 +96,6 @@ if (agentOptions.HasIngestionConfig)
         sp.GetRequiredService<EmbeddingService>(),
         sp.GetRequiredService<SearchIndexer>(),
         sp.GetService<ContentSafetyService>(),
-        agentOptions,
         sp.GetRequiredService<ILogger<IngestionService>>()));
     // Create the container/queues/table/index once at startup, before the worker polls (StartAsync runs in registration order).
     builder.Services.AddHostedService<IngestionInitializer>();

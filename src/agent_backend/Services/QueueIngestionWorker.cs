@@ -7,7 +7,6 @@ namespace AgentBackend.Services;
 /// <summary>
 /// Background consumer for the ingestion queue. Runs <see cref="IngestionService.ProcessAsync"/> per message and records the outcome in
 /// <see cref="IngestionStatusStore"/>: on success delete, on transient failure leave to reappear (retry), after <see cref="MaxDequeueCount"/> failures mark <c>failed</c> and poison.
-/// A screening rejection (<see cref="IngestionRejectedException"/>) is terminal and skips the retry ladder entirely.
 /// </summary>
 public sealed class QueueIngestionWorker(
     QueueService queue,
@@ -84,15 +83,6 @@ public sealed class QueueIngestionWorker(
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Host is shutting down mid-run; leave the message to be redelivered after the visibility timeout.
-        }
-        catch (IngestionRejectedException ex)
-        {
-            // A verdict, not a fault: retrying can only reject it again, so fail it now and drop the message.
-            logger.LogWarning(
-                "Rejected {FileName} ({FileId}) in session {SessionId}: {Reason}",
-                payload.FileName, payload.FileId, payload.SessionId, ex.Message);
-            await statusStore.SetFailedAsync(payload.SessionId, payload.FileId, payload.FileName, ex.Message, ct);
-            await queue.DeleteAsync(message, ct);
         }
         catch (Exception ex)
         {

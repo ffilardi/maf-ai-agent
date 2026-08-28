@@ -174,10 +174,30 @@ does reach model context, and review happens after the fact.
 
 Every flagged chunk is therefore logged, one Warning per passage, carrying the file name, file id, session,
 **chunk index** and count, the chunk length, and the **search document id** (`{fileId}-{n}`) — but never the
-passage text itself. Pair the index with the file's stored `output.{ext}` blob to read exactly what tripped,
-without putting document text into App Insights. The **Agent Operations** workbook surfaces these as the
-"Flagged passages for review" table; if a hit is confirmed hostile, delete the whole attachment
-(`DELETE /files/{fileId}`), which purges its chunks, blobs, and status row.
+passage text itself, which would put document content into App Insights. The **Agent Operations** workbook
+surfaces these as the "Flagged passages for review" table.
+
+#### Reviewing a flagged passage
+
+The logged search document id is a **document key**, and the key is the only handle that reaches one specific
+chunk: `id` is the index's key field but is *not* filterable, so `$filter=id eq '...'` is rejected by Search
+and there is no query that selects a chunk by id. Reviewing a hit therefore means a **key lookup**, which is
+why `lookupDocument` (`GET /indexes('{index}')/docs('{key}')`) is in the gateway's OpenAPI allow-list
+([`search-openapi.json`](../infra/modules/apim/api/search-openapi.json)) alongside the query operations:
+
+```shell
+curl -s -H "api-key: $APIM_SUBSCRIPTION_KEY" \
+  "$AI_SEARCH_ENDPOINT/indexes('agent-index')/docs('<fileId>-<chunkIndex>')?api-version=2024-07-01&\$select=id,title,fileName,content" \
+  | jq -r .content
+```
+
+`$select` is worth keeping — without it the response carries the 3072-dimension `contentVector` and buries the
+text. Read-only and covered by the `Search Index Data Reader` role APIM's managed identity already holds; the
+API-level policy applies unchanged, so the client key never reaches Search.
+
+If the passage really is hostile, delete the whole attachment (`DELETE /files/{fileId}`), which purges its
+chunks, blobs, and status row. There is no per-chunk delete, by design: a document whose content is adversarial
+is not made safe by removing the one chunk that happened to trip a boolean detector.
 
 Screening never blocks and never fails a file. It is skipped entirely when Content Safety isn't configured
 (`CONTENT_SAFETY_MODE=off`); `log` and `block` behave identically here, since `CONTENT_SAFETY_MODE` governs

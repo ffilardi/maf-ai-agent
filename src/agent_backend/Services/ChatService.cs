@@ -304,7 +304,7 @@ public sealed class ChatService(
         return trimmed.Length > MaxSystemPromptChars ? trimmed[..MaxSystemPromptChars] : trimmed;
     }
 
-    // Content Safety pre-check for a turn: returns a block message when rejected (block mode + flagged verdict), else null. Detections are logged in every mode.
+    // Content Safety pre-check for a turn: returns a block message when rejected, else null. Everything is logged in every mode.
     private async Task<string?> CheckContentSafetyAsync(string input, string sessionId, CancellationToken ct)
     {
         if (contentSafety is null || string.IsNullOrWhiteSpace(input))
@@ -313,19 +313,31 @@ public sealed class ChatService(
         }
 
         var verdict = await contentSafety.EvaluateAsync(input, ct);
-        if (!verdict.Flagged)
+
+        if (verdict.Flagged)
         {
-            return null;
+            var categories = string.Join(", ", verdict.Categories
+                .Where(c => c.Severity >= options.ContentSafetyThreshold)
+                .Select(c => $"{c.Category}={c.Severity}"));
+            logger.LogWarning(
+                "Content safety flagged session {SessionId}: categories=[{Categories}] promptAttack={Attack} mode={Mode}",
+                sessionId, categories, verdict.PromptAttackDetected, options.ContentSafetyMode);
+
+            return options.IsContentSafetyBlocking ? ContentSafetyBlockMessage : null;
         }
 
-        var categories = string.Join(", ", verdict.Categories
-            .Where(c => c.Severity >= options.ContentSafetyThreshold)
-            .Select(c => $"{c.Category}={c.Severity}"));
-        logger.LogWarning(
-            "Content safety flagged session {SessionId}: categories=[{Categories}] promptAttack={Attack} mode={Mode}",
-            sessionId, categories, verdict.PromptAttackDetected, options.ContentSafetyMode);
+        // Not flagged, but not screened either: a fail-open turn reaches the model with blocking silently disabled.
+        // Logged always so the gap is auditable; rejected only where CONTENT_SAFETY_FAIL_CLOSED trades availability for it.
+        if (!verdict.Evaluated)
+        {
+            logger.LogWarning(
+                "Content safety could not evaluate session {SessionId}: allowing unscreened (fail-open) mode={Mode} failClosed={FailClosed}",
+                sessionId, options.ContentSafetyMode, options.ContentSafetyFailClosed);
 
-        return options.IsContentSafetyBlocking ? ContentSafetyBlockMessage : null;
+            return options.IsContentSafetyFailClosed ? ContentSafetyBlockMessage : null;
+        }
+
+        return null;
     }
 
     // Builds the per-request user message and a fresh session tagged with the conversation id (= sessionId) the

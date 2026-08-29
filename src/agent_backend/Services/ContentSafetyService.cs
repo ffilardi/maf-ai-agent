@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Text.Json;
 using AgentBackend.Configuration;
 
@@ -6,10 +7,14 @@ namespace AgentBackend.Services;
 /// <summary>
 /// Per-turn Azure AI Content Safety pre-check on the user's message, via the APIM gateway (/contentsafety, Ocp-Apim-Subscription-Key header).
 /// Calls <c>text:analyze</c> (harm-category severities) and, when enabled, <c>text:shieldPrompt</c> (jailbreak detection).
-/// Fails <b>open</b> on any error (logs a warning, reports "nothing detected") so a Content Safety outage never takes chat down.
+/// Fails <b>open</b> on any error (logs a warning, reports "nothing detected") so a Content Safety outage never takes chat down —
+/// but says so via <see cref="Verdict.Evaluated"/> and the <c>outcome=failopen</c> counter, so the gap is visible and can be alerted on.
 /// </summary>
-public sealed class ContentSafetyService
+public sealed class ContentSafetyService : IDisposable
 {
+    /// <summary>Meter name; must match the <c>AddMeter</c> registration in <c>Program.cs</c>.</summary>
+    public const string MeterName = "AgentBackend.ContentSafety";
+
     // Data-plane api-version for text:analyze + text:shieldPrompt.
     private const string ApiVersion = "2024-09-01";
 
@@ -22,11 +27,17 @@ public sealed class ContentSafetyService
     private readonly HttpClient _http = new();
     private readonly Uri _analyzeUri;
     private readonly Uri _shieldUri;
+    private readonly Meter _meter;
+    private readonly Counter<long> _evaluations;
 
     public ContentSafetyService(AgentOptions options, ILogger<ContentSafetyService> logger)
     {
         _options = options;
         _logger = logger;
+        _meter = new Meter(MeterName);
+        // One low-cardinality dimension (three values), so this lands in customMetrics and a metric alert can fire on it.
+        _evaluations = _meter.CreateCounter<long>(
+            "agent.contentsafety.evaluations", "turn", "Content Safety pre-checks by outcome (clean | flagged | failopen).");
         var root = options.ApimGatewayEndpoint!.TrimEnd('/');
         _analyzeUri = new Uri($"{root}/contentsafety/text:analyze?api-version={ApiVersion}");
         _shieldUri = new Uri($"{root}/contentsafety/text:shieldPrompt?api-version={ApiVersion}");
@@ -35,11 +46,16 @@ public sealed class ContentSafetyService
     /// <summary>A single harm category and the severity (0-7) Content Safety scored for it.</summary>
     public sealed record CategorySeverity(string Category, int Severity);
 
-    /// <summary>The screening result for one turn; <see cref="Flagged"/> is true when a category reached the threshold or an attack was detected.</summary>
+    /// <summary>
+    /// The screening result for one turn. <see cref="Flagged"/> is true when a category reached the threshold or an attack
+    /// was detected; <see cref="Evaluated"/> is false when a sub-call failed open, which makes "clean" and "never screened"
+    /// distinguishable — without it a Content Safety outage silently disables blocking.
+    /// </summary>
     public sealed record Verdict(
         bool Flagged,
         IReadOnlyList<CategorySeverity> Categories,
-        bool PromptAttackDetected);
+        bool PromptAttackDetected,
+        bool Evaluated);
 
     /// <summary>Screens <paramref name="text"/> and returns the verdict. Never throws (fails open).</summary>
     public async Task<Verdict> EvaluateAsync(string text, CancellationToken ct)
@@ -51,16 +67,35 @@ public sealed class ContentSafetyService
 
         // Run both checks concurrently (each fails open internally, so neither can fault the pair).
         var analyzeTask = AnalyzeAsync(text, ct);
-        var shieldTask = _options.ContentSafetyShieldPrompt ? ShieldPromptAsync(text, ct) : Task.FromResult(false);
-        var categories = await analyzeTask;
-        var attack = await shieldTask;
+        var shieldTask = _options.ContentSafetyShieldPrompt
+            ? ShieldPromptAsync(text, ct)
+            : Task.FromResult((Evaluated: true, Attack: false));
+        var analysis = await analyzeTask;
+        var shield = await shieldTask;
 
-        var flagged = attack || categories.Any(c => c.Severity >= _options.ContentSafetyThreshold);
-        return new Verdict(flagged, categories, attack);
+        var flagged = shield.Attack || analysis.Categories.Any(c => c.Severity >= _options.ContentSafetyThreshold);
+        // Either sub-call falling open leaves the turn only partly screened, so the whole verdict counts as unevaluated.
+        var evaluated = analysis.Evaluated && shield.Evaluated;
+
+        RecordOutcome(evaluated ? (flagged ? "flagged" : "clean") : "failopen");
+        return new Verdict(flagged, analysis.Categories, shield.Attack, evaluated);
+    }
+
+    // Telemetry must never fail a served turn (mirrors TokenUsageTelemetry).
+    private void RecordOutcome(string outcome)
+    {
+        try
+        {
+            _evaluations.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Content Safety telemetry failed; the pre-check itself completed normally.");
+        }
     }
 
     // text:analyze — harm-category severities (Hate, SelfHarm, Sexual, Violence) on the 0-7 scale.
-    private async Task<IReadOnlyList<CategorySeverity>> AnalyzeAsync(string text, CancellationToken ct)
+    private async Task<(bool Evaluated, IReadOnlyList<CategorySeverity> Categories)> AnalyzeAsync(string text, CancellationToken ct)
     {
         try
         {
@@ -79,31 +114,31 @@ public sealed class ContentSafetyService
                     }
                 }
             }
-            return results;
+            return (true, results);
         }
         catch (Exception ex)
         {
             // Fail open: a content-safety outage must not take down chat (mirrors SearchAdapter).
             _logger.LogWarning(ex, "Content Safety text:analyze failed; allowing request (fail-open).");
-            return Array.Empty<CategorySeverity>();
+            return (false, Array.Empty<CategorySeverity>());
         }
     }
 
     // text:shieldPrompt — Prompt Shields user-prompt attack (jailbreak / prompt-injection) detection.
-    private async Task<bool> ShieldPromptAsync(string text, CancellationToken ct)
+    private async Task<(bool Evaluated, bool Attack)> ShieldPromptAsync(string text, CancellationToken ct)
     {
         try
         {
             using var doc = await PostAsync(_shieldUri, new { userPrompt = text, documents = Array.Empty<string>() }, ct);
 
-            return doc.RootElement.TryGetProperty("userPromptAnalysis", out var analysis)
+            return (true, doc.RootElement.TryGetProperty("userPromptAnalysis", out var analysis)
                 && analysis.TryGetProperty("attackDetected", out var detected)
-                && detected.GetBoolean();
+                && detected.GetBoolean());
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Content Safety text:shieldPrompt failed; treating as no attack (fail-open).");
-            return false;
+            return (false, false);
         }
     }
 
@@ -119,5 +154,11 @@ public sealed class ContentSafetyService
         response.EnsureSuccessStatusCode();
 
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public void Dispose()
+    {
+        _meter.Dispose();
+        _http.Dispose();
     }
 }

@@ -44,6 +44,8 @@ Ensure your subscription has sufficient quota for Azure OpenAI model deployments
 | `APIM_SUBSCRIPTION_KEY` | APIM subscription key | Retrieved from Key Vault |
 | `AI_MODEL_DEPLOYMENTS` | Comma-separated selectable chat models; first is the default | `gpt-5.4-mini` |
 | `AGENT_INSTRUCTIONS` | Overrides the built-in default system prompt (optional) | _(built-in default)_ |
+| `EXPOSE_DEFAULT_PROMPT` | Advertise the effective base prompt on `GET /config`; `false` returns `""` (Azure sets `false`) | `true` |
+| `ALLOW_SYSTEM_PROMPT_OVERRIDE` | Honour a per-request `systemPrompt`; `false` ignores it and logs the attempt | `true` |
 | `COSMOS_ENDPOINT` | Cosmos DB endpoint | `https://cosmos-env-token.documents.azure.com:443/` |
 | `COSMOS_KEY` | Cosmos DB key | Retrieved from Key Vault |
 | `COSMOS_DB` | Database name | `agent_db` |

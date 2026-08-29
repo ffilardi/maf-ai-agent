@@ -140,6 +140,8 @@ The backend agent requires the following configuration (set via App Service sett
 - `APIM_SUBSCRIPTION_KEY` - APIM subscription key (from Key Vault)
 - `AI_MODEL_DEPLOYMENTS` - Comma-separated selectable chat model deployments (first is the default)
 - `AGENT_INSTRUCTIONS` - Overrides the built-in default system prompt (optional)
+- `EXPOSE_DEFAULT_PROMPT` - Advertise the effective base prompt on `GET /config` (default `true`; the Azure deploy sets `false`)
+- `ALLOW_SYSTEM_PROMPT_OVERRIDE` - Honour a per-request `systemPrompt` (default `true`)
 - `COSMOS_ENDPOINT` - Cosmos DB account endpoint
 - `COSMOS_KEY` - Cosmos DB access key (from Key Vault)
 - `COSMOS_DB` - Database name (default: `agent_db`)

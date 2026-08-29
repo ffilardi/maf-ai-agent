@@ -16,10 +16,13 @@ public static class MetaEndpoints
         // Health check endpoint.
         app.MapGet("/ping", () => Results.Json(new { status = "healthy" }));
 
-        // Non-secret client config: selectable models, default model, and the effective default system prompt.
+        // Non-secret client config: selectable models, default model, and — unless EXPOSE_DEFAULT_PROMPT is off — the
+        // effective default system prompt. Withheld it reads as "", which the SPA renders as a placeholder.
         app.MapGet("/config", (AgentOptions options) => Results.Json(new ConfigResponse(
             Models: options.Models,
             DefaultModel: options.DefaultModel,
-            DefaultSystemPrompt: options.AgentInstructions ?? AgentFactory.DefaultAgentInstructions)));
+            DefaultSystemPrompt: options.ExposeDefaultPrompt
+                ? options.AgentInstructions ?? AgentFactory.DefaultAgentInstructions
+                : string.Empty)));
     }
 }

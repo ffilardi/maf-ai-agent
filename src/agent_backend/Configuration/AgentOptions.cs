@@ -12,6 +12,12 @@ public sealed class AgentOptions
     // Optional system-prompt override (AGENT_INSTRUCTIONS); unset falls back to AgentFactory.DefaultAgentInstructions.
     public string? AgentInstructions { get; init; }
 
+    // System-prompt exposure/override switches. Both default to the demo behaviour; Azure turns exposure off in app.bicep.
+    //   EXPOSE_DEFAULT_PROMPT: advertise the effective base prompt on GET /config (handing a caller the tool contract).
+    //   ALLOW_SYSTEM_PROMPT_OVERRIDE: honour a per-request systemPrompt (replacing the base prompt wholesale).
+    public bool ExposeDefaultPrompt { get; init; } = true;
+    public bool AllowSystemPromptOverride { get; init; } = true;
+
     // Cosmos DB conversation store.
     public string? CosmosEndpoint { get; init; }
     public string? CosmosKey { get; init; }
@@ -131,6 +137,8 @@ public sealed class AgentOptions
         AiModelDeployments = (config["AI_MODEL_DEPLOYMENTS"] ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         AgentInstructions = config["AGENT_INSTRUCTIONS"],
+        ExposeDefaultPrompt = !string.Equals(config["EXPOSE_DEFAULT_PROMPT"], "false", StringComparison.OrdinalIgnoreCase),
+        AllowSystemPromptOverride = !string.Equals(config["ALLOW_SYSTEM_PROMPT_OVERRIDE"], "false", StringComparison.OrdinalIgnoreCase),
         CosmosEndpoint = config["COSMOS_ENDPOINT"],
         CosmosKey = config["COSMOS_KEY"],
         CosmosDb = config["COSMOS_DB"] ?? "agent_db",

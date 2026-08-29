@@ -50,10 +50,16 @@ builder.Services.AddCors(options => options.AddPolicy(FrontendCorsPolicy, policy
     }
 }));
 
+// Shared managed-identity credential (Cosmos, blob, queue, table — no account keys); resolves a developer login locally.
+builder.Services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential());
+
 // Shared Cosmos client for the chat-history provider; registered only when configured (else /chat returns 503).
+// Entra ID by default; COSMOS_USE_RBAC=false falls back to the account key for one release as the rollback.
 if (agentOptions.HasCosmosConfig)
 {
-    builder.Services.AddSingleton(_ => new CosmosClient(agentOptions.CosmosEndpoint, agentOptions.CosmosKey));
+    builder.Services.AddSingleton(sp => agentOptions.UseCosmosRbac
+        ? new CosmosClient(agentOptions.CosmosEndpoint, sp.GetRequiredService<TokenCredential>())
+        : new CosmosClient(agentOptions.CosmosEndpoint, agentOptions.CosmosKey));
     // Read/list/delete access backing the sessions sidebar; shares the CosmosClient singleton.
     builder.Services.AddSingleton<ConversationStore>();
 }
@@ -83,8 +89,6 @@ builder.Services.AddSingleton<TokenUsageTelemetry>();
 // File-attachment ingestion pipeline; registered only when fully configured (else POST /files returns 503).
 if (agentOptions.HasIngestionConfig)
 {
-    // Shared managed-identity credential for blob/queue/table (no account key); resolves a developer login locally.
-    builder.Services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential());
     builder.Services.AddSingleton<StorageService>();
     builder.Services.AddSingleton<QueueService>();
     builder.Services.AddSingleton<IngestionStatusStore>();

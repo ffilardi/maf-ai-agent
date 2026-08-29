@@ -111,8 +111,9 @@ var appSettings = [
     value: !empty(cosmosDb.name) ? cosmosDb.properties.documentEndpoint : ''
   }
   {
-    name: 'COSMOS_KEY'
-    value: !empty(cosmosDbVaultSecret.outputs.reference) ? cosmosDbVaultSecret.outputs.reference : ''
+    // No COSMOS_KEY: the backend's managed identity holds the Cosmos DB Data Contributor role (webAppBackendRbac04).
+    name: 'COSMOS_USE_RBAC'
+    value: 'true'
   }
   {
     name: 'MAX_HISTORY_TTL_DAYS'
@@ -195,16 +196,6 @@ module apimVaultSecret '../keyvault/resources/secret.bicep' = if (!empty(apim.na
   }
 }
 
-module cosmosDbVaultSecret '../keyvault/resources/secret.bicep' = if (!empty(cosmosDb.name) && !empty(keyVaultName) && !empty(commonResourceGroupName)) {
-  name: 'cosmosdb-secret'
-  scope: resourceGroup(commonResourceGroupName)
-  params: {
-    vaultName: keyVaultName
-    secretName: 'cosmos-db-key'
-    secretValue: cosmosDb.listKeys().primaryMasterKey
-  }
-}
-
 // Agent Frontend
 module webAppFrontend './resources/static-web-app.bicep' = {
   name: 'agent-frontend'
@@ -265,6 +256,17 @@ module webAppBackendRbac02 '../security/cosmosdb-rbac.bicep' = if (!empty(common
   params: {
     serviceName: cosmosDbName
     roleNames: ['Cosmos DB Operator']
+    principalId: webAppBackend.outputs.principalId
+  }
+}
+
+// Data-plane access to the conversation store. Cosmos keeps documents behind its own SQL role system, so the
+// control-plane 'Cosmos DB Operator' above grants none of it.
+module webAppBackendRbac04 '../security/cosmosdb-data-rbac.bicep' = if (!empty(commonResourceGroupName) && !empty(cosmosDbName)) {
+  name: '${webAppBackendName}-rbac-04'
+  scope: resourceGroup(commonResourceGroupName)
+  params: {
+    serviceName: cosmosDbName
     principalId: webAppBackend.outputs.principalId
   }
 }

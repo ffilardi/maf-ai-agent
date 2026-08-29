@@ -47,7 +47,8 @@ Ensure your subscription has sufficient quota for Azure OpenAI model deployments
 | `EXPOSE_DEFAULT_PROMPT` | Advertise the effective base prompt on `GET /config`; `false` returns `""` (Azure sets `false`) | `true` |
 | `ALLOW_SYSTEM_PROMPT_OVERRIDE` | Honour a per-request `systemPrompt`; `false` ignores it and logs the attempt | `true` |
 | `COSMOS_ENDPOINT` | Cosmos DB endpoint | `https://cosmos-env-token.documents.azure.com:443/` |
-| `COSMOS_KEY` | Cosmos DB key | Retrieved from Key Vault |
+| `COSMOS_USE_RBAC` | Authenticate to Cosmos with Entra ID (`DefaultAzureCredential`) instead of an account key. The Azure deploy sets `true` | `true` |
+| `COSMOS_KEY` | Cosmos DB key. Only read when `COSMOS_USE_RBAC=false` (the rollback path) | _(unset)_ |
 | `COSMOS_DB` | Database name | `agent_db` |
 | `COSMOS_CONTAINER` | Container name | `conversations` |
 | `MAX_HISTORY_MESSAGES` | Caps the most-recent messages read from Cosmos per turn (RU/latency guard) | `100` |
@@ -88,8 +89,10 @@ All services log to Application Insights with structured logging:
    - Verify AI model deployment exists and is accessible via APIM
 
 2. **"Conversation store not configured":**
-   - Ensure COSMOS_ENDPOINT and COSMOS_KEY are set
+   - Ensure COSMOS_ENDPOINT is set, plus COSMOS_KEY if you set `COSMOS_USE_RBAC=false`
    - Verify Cosmos DB database and container exist
+   - With RBAC (the default), a 403 on the first turn means the caller's principal is missing the **Cosmos DB
+     Built-in Data Contributor** SQL role — a data-plane role that the control-plane ones don't imply
 
 3. **RAG `SearchChatAttachments` tool not used / no grounding:**
    - Ensure `AI_SEARCH_ENDPOINT`, `AI_SEARCH_SUBSCRIPTION_KEY`, and `AI_SEARCH_INDEX` are all set (the tool stays dormant unless all three are present)

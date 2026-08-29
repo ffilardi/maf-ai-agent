@@ -34,6 +34,9 @@ param backupStorageRedundancy string = 'Local'
 @description('Zone-redundant write region. Requires an availability-zone-capable location.')
 param isZoneRedundant bool = false
 
+@description('Disable local (key-based) authentication on the account. Requires the backend\'s data-plane role assignment to already exist — see main.bicep.')
+param disableLocalAuth bool = false
+
 var databases array = [
   {
     name: 'agent_db'
@@ -55,6 +58,7 @@ module account './resources/account.bicep' = {
     enableFreeTier: enableFreeTier
     backupStorageRedundancy: backupStorageRedundancy
     isZoneRedundant: isZoneRedundant
+    disableLocalAuth: disableLocalAuth
     logAnalyticsWorkspaceId: logAnalyticsWorkspaceId
     enableVerboseLogs: enableVerboseLogs
   }

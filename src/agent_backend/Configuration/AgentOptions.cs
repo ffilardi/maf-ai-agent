@@ -21,6 +21,9 @@ public sealed class AgentOptions
     // Cosmos DB conversation store.
     public string? CosmosEndpoint { get; init; }
     public string? CosmosKey { get; init; }
+    // Entra ID (managed identity / az login) instead of the account key. The key path stays available for one
+    // release as the rollback: set COSMOS_USE_RBAC=false and supply COSMOS_KEY again.
+    public bool UseCosmosRbac { get; init; } = true;
     public string CosmosDb { get; init; } = "agent_db";
     public string CosmosContainer { get; init; } = "conversations";
 
@@ -97,9 +100,10 @@ public sealed class AgentOptions
         && !string.IsNullOrWhiteSpace(ApimSubscriptionKey)
         && DefaultModel is not null;
 
-    /// <summary>True when both Cosmos settings required to attach the store are present.</summary>
+    /// <summary>True when the Cosmos settings required to attach the store are present: the endpoint, plus a key when RBAC is off.</summary>
     public bool HasCosmosConfig =>
-        !string.IsNullOrWhiteSpace(CosmosEndpoint) && !string.IsNullOrWhiteSpace(CosmosKey);
+        !string.IsNullOrWhiteSpace(CosmosEndpoint)
+        && (UseCosmosRbac || !string.IsNullOrWhiteSpace(CosmosKey));
 
     /// <summary>True when all three Azure AI Search settings are present; gates the RAG search tool.</summary>
     public bool HasAiSearchConfig =>
@@ -141,6 +145,7 @@ public sealed class AgentOptions
         AllowSystemPromptOverride = !string.Equals(config["ALLOW_SYSTEM_PROMPT_OVERRIDE"], "false", StringComparison.OrdinalIgnoreCase),
         CosmosEndpoint = config["COSMOS_ENDPOINT"],
         CosmosKey = config["COSMOS_KEY"],
+        UseCosmosRbac = !string.Equals(config["COSMOS_USE_RBAC"], "false", StringComparison.OrdinalIgnoreCase),
         CosmosDb = config["COSMOS_DB"] ?? "agent_db",
         CosmosContainer = config["COSMOS_CONTAINER"] ?? "conversations",
         MaxHistoryMessages = int.TryParse(config["MAX_HISTORY_MESSAGES"], out var mhm) && mhm > 0 ? mhm : 100,

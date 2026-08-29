@@ -89,6 +89,9 @@ param logAnalyticsWorkspaceId string = ''
 @description('Emit resource logs to Log Analytics.')
 param enableLogs bool = true
 
+@description('Disable local (key-based) authentication. Off by default because it can only be turned on in a deployment that runs AFTER the backend has its Cosmos DB Data Contributor role — see the disableCosmosLocalAuth note in main.bicep.')
+param disableLocalAuth bool = false
+
 @description('Emit audit-category logs to Log Analytics.')
 param enableAuditLogs bool = false
 
@@ -132,6 +135,7 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
     networkAclBypassResourceIds: networkAclBypassResourceIds
     minimalTlsVersion: minimalTlsVersion
     publicNetworkAccess: publicNetworkAccess
+    disableLocalAuth: disableLocalAuth
     enableMultipleWriteLocations: enableMultipleWriteLocations
     enableAutomaticFailover: enableAutomaticFailover
     isVirtualNetworkFilterEnabled: isVirtualNetworkFilterEnabled

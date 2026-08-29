@@ -7,7 +7,8 @@ namespace AgentBackend.Services;
 /// <summary>
 /// The file-attachment RAG pipeline, split for async processing. <see cref="EnqueueAsync"/> (request path) persists the original,
 /// records a <c>processing</c> status, and enqueues so <c>POST /files</c> can answer 202. <see cref="ProcessAsync"/> (worker) downloads
-/// it, converts to markdown (Document Intelligence for binary/office/HTML, verbatim for text), chunks + embeds, and pushes the chunks tagged by <c>sessionId</c>.
+/// it, converts to markdown (Document Intelligence for binary/office/HTML, verbatim for text), screens for embedded instructions,
+/// chunks + embeds, and pushes the chunks tagged by <c>sessionId</c>.
 /// </summary>
 public sealed class IngestionService(
     StorageService storage,
@@ -16,8 +17,10 @@ public sealed class IngestionService(
     DocumentIntelligenceService documentIntelligence,
     EmbeddingService embeddings,
     SearchIndexer searchIndexer,
+    ContentSafetyService? contentSafety,
     ILogger<IngestionService> logger)
 {
+
     /// <summary>Request-path step: persist the original, mark it <c>processing</c>, enqueue it, and return the generated file id.</summary>
     /// <exception cref="AgentInvocationException">Blob/queue/table failed; carries the mapped HTTP status.</exception>
     public async Task<string> EnqueueAsync(
@@ -76,6 +79,7 @@ public sealed class IngestionService(
             $"{message.FileId}/{outputName}", BinaryData.FromString(text), outputContentType, ct);
 
         var chunks = MarkdownChunker.Chunk(text);
+        await ScreenAsync(message, chunks, ct);
         var vectors = await embeddings.EmbedAsync(chunks, ct);
 
         // Extension-stripped file name for the searchable fileNameText field: the extension is pure noise (the analyzer tokenizes "report.pdf" → "report","pdf", and "pdf" would then match every PDF).
@@ -99,6 +103,36 @@ public sealed class IngestionService(
 
         await searchIndexer.UploadAsync(documents, ct);
         return chunks.Count;
+    }
+
+    // Indirect prompt-injection screening, run before indexing. Detective only: nothing is rejected or withheld, every
+    // flagged passage is reported for review. Skipped when Content Safety isn't configured. Never throws.
+    private async Task ScreenAsync(IngestionMessage message, IReadOnlyList<string> chunks, CancellationToken ct)
+    {
+        if (contentSafety is null || chunks.Count == 0)
+        {
+            return;
+        }
+
+        var verdict = await contentSafety.EvaluateDocumentsAsync(chunks, ct);
+
+        // One line per flagged passage, each naming its search document id so a confirmed hit can be acted on directly.
+        // Identifiers and lengths only, never the passage text — it stays in the file's stored output blob.
+        foreach (var index in verdict.FlaggedIndexes)
+        {
+            logger.LogWarning(
+                "Prompt-injection screening flagged a passage in {FileName} ({FileId}) session {SessionId}: chunk {ChunkIndex} of {ChunkCount} ({ChunkChars} chars), search document {DocumentId}. Indexed anyway — review it and delete the attachment if the content is hostile.",
+                message.FileName, message.FileId, message.SessionId,
+                index, chunks.Count, chunks[index].Length, $"{message.FileId}-{index}");
+        }
+
+        if (!verdict.Evaluated)
+        {
+            // Same gap as the per-turn fail-open: screening errored, so the file is indexed unscreened.
+            logger.LogWarning(
+                "Prompt-injection screening could not evaluate {FileName} ({FileId}) in session {SessionId}; indexing unscreened (fail-open).",
+                message.FileName, message.FileId, message.SessionId);
+        }
     }
 
     /// <summary>Removes a conversation's ingestion artifacts (search chunks, blobs, status rows) on delete. Best-effort: each step isolated, never throws, failures logged at Error.</summary>

@@ -11,7 +11,7 @@ response's `usedTools` array.
 Content reaches the index two ways: a pre-existing index you populate yourself, and — new — **file
 attachments** users upload in the chat. The frontend's attachment button (paperclip in the composer) posts a
 document to the backend's `POST /files`, which persists it and **enqueues** it; a background worker runs the
-ingestion pipeline (Document Intelligence → chunk → embed → push) and the SPA polls the file's status,
+ingestion pipeline (Document Intelligence → chunk → screen → embed → push) and the SPA polls the file's status,
 keeping the prompt box locked until it's indexed (or fails). Each chunk is tagged with the conversation's
 `sessionId`, and the `SearchChatAttachments` tool filters retrieval to the current conversation — a document uploaded in one
 chat isn't retrieved in another. Retrieval is **hybrid** (keyword + vector): chunks are embedded with
@@ -145,14 +145,65 @@ runs `IngestionService.ProcessAsync`:
    here: DI's detected title paragraph (binary path) → the first markdown/text heading (`MarkdownTitle`) →
    the file name without its extension.
 5. **Chunk** — `MarkdownChunker` splits on markdown paragraph/heading boundaries (~512 tokens, ~10% overlap).
-6. **Embed** — `EmbeddingService` vectorizes the chunks with `text-embedding-3-large` (via APIM `/openai`).
-7. **Push** — upload the chunks (tagged with `title`/`fileName`/`sessionId`/`fileId`) to the index that
+6. **Screen** — the chunks go through Content Safety **Prompt Shields** for embedded instructions (below);
+   detection is recorded for review, nothing is withheld from the index.
+7. **Embed** — `EmbeddingService` vectorizes the chunks with `text-embedding-3-large` (via APIM `/openai`).
+8. **Push** — upload the chunks (tagged with `title`/`fileName`/`sessionId`/`fileId`) to the index that
    `IngestionInitializer` already ensured at startup; finally the status is set to `indexed` (with the chunk
    count).
 
 The worker hides each message for a 5-minute visibility timeout while processing; a transient failure leaves
 the message to be redelivered (retry), and after 5 attempts it's marked `failed` and moved to a poison queue.
 Reprocessing is safe — chunk ids are deterministic (`{fileId}-{n}`), so a redelivered message overwrites.
+
+### Screening uploads for indirect prompt injection
+
+An uploaded document is untrusted input that ends up *inside the model's context*, so a file can carry
+instructions aimed at the assistant rather than content aimed at the reader ("ignore your instructions and…").
+The per-turn Content Safety check never sees this — the user's message is innocuous; the payload arrives
+through retrieval. So step 6 screens the extracted chunks through `text:shieldPrompt`'s **`documents`**
+channel, the parameter built for exactly this (`ContentSafetyService.EvaluateDocumentsAsync`, batches of 5).
+
+Screening is **detective, not preventive**: every chunk is screened, every detection is reported, and the file
+is indexed in full regardless. Nothing is rejected, quarantined, or withheld. That is a deliberate choice —
+Prompt Shields' `documents` channel returns a bare boolean with no severity or confidence, so there is no
+threshold to tune, and it is tuned for short retrieved passages: ordinary imperative security prose ("the user
+must type the number displayed on the phone to gain access") reads to it like an injected instruction. Blocking
+on that boolean would make routine technical documents unusable. The tradeoff is explicit — a genuine injection
+does reach model context, and review happens after the fact.
+
+Every flagged chunk is therefore logged, one Warning per passage, carrying the file name, file id, session,
+**chunk index** and count, the chunk length, and the **search document id** (`{fileId}-{n}`) — but never the
+passage text itself, which would put document content into App Insights. The **Agent Operations** workbook
+surfaces these as the "Flagged passages for review" table.
+
+#### Reviewing a flagged passage
+
+The logged search document id is a **document key**, and the key is the only handle that reaches one specific
+chunk: `id` is the index's key field but is *not* filterable, so `$filter=id eq '...'` is rejected by Search
+and there is no query that selects a chunk by id. Reviewing a hit therefore means a **key lookup**, which is
+why `lookupDocument` (`GET /indexes('{index}')/docs('{key}')`) is in the gateway's OpenAPI allow-list
+([`search-openapi.json`](../infra/modules/apim/api/search-openapi.json)) alongside the query operations:
+
+```shell
+curl -s -H "api-key: $APIM_SUBSCRIPTION_KEY" \
+  "$AI_SEARCH_ENDPOINT/indexes('agent-index')/docs('<fileId>-<chunkIndex>')?api-version=2024-07-01&\$select=id,title,fileName,content" \
+  | jq -r .content
+```
+
+`$select` is worth keeping — without it the response carries the 3072-dimension `contentVector` and buries the
+text. Read-only and covered by the `Search Index Data Reader` role APIM's managed identity already holds; the
+API-level policy applies unchanged, so the client key never reaches Search.
+
+If the passage really is hostile, delete the whole attachment (`DELETE /files/{fileId}`), which purges its
+chunks, blobs, and status row. There is no per-chunk delete, by design: a document whose content is adversarial
+is not made safe by removing the one chunk that happened to trip a boolean detector.
+
+Screening never blocks and never fails a file. It is skipped entirely when Content Safety isn't configured
+(`CONTENT_SAFETY_MODE=off`); `log` and `block` behave identically here, since `CONTENT_SAFETY_MODE` governs
+only the per-turn check. Like the per-turn check it **fails open**: if the screening call errors the file is
+indexed anyway, logged as a fail-open and counted as `stage=document, outcome=failopen` on
+`agent.contentsafety.evaluations` — so "no detections" and "never screened" stay distinguishable.
 
 **Status** — the SPA polls `GET /files/{fileId}?sessionId=...` every ~2s until `indexed` or `failed`, and
 keeps the prompt box locked while any attachment is still `processing` (failed uploads offer a retry). All

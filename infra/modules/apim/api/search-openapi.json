@@ -118,6 +118,29 @@
         }
       }
     },
+    "/indexes('{indexName}')/docs('{key}')": {
+      "get": {
+        "operationId": "lookupDocument",
+        "summary": "Look up a document by key (GET)",
+        "description": "Read-only retrieval of one indexed chunk by its key.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/indexName"
+          },
+          {
+            "$ref": "#/components/parameters/key"
+          },
+          {
+            "$ref": "#/components/parameters/apiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ok"
+          }
+        }
+      }
+    },
     "/indexes('{indexName}')/docs/search.autocomplete": {
       "get": {
         "operationId": "autocompleteGet",
@@ -231,6 +254,15 @@
         "in": "query",
         "required": true,
         "description": "Azure AI Search data-plane API version. Forwarded to the backend unchanged.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "key": {
+        "name": "key",
+        "in": "path",
+        "required": true,
+        "description": "Key of the target document.",
         "schema": {
           "type": "string"
         }

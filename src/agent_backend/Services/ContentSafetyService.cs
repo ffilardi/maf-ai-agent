@@ -5,10 +5,11 @@ using AgentBackend.Configuration;
 namespace AgentBackend.Services;
 
 /// <summary>
-/// Per-turn Azure AI Content Safety pre-check on the user's message, via the APIM gateway (/contentsafety, Ocp-Apim-Subscription-Key header).
-/// Calls <c>text:analyze</c> (harm-category severities) and, when enabled, <c>text:shieldPrompt</c> (jailbreak detection).
+/// Azure AI Content Safety screening via the APIM gateway (/contentsafety, Ocp-Apim-Subscription-Key header), in two stages:
+/// per-turn on the user's message (<c>text:analyze</c> severities + <c>text:shieldPrompt</c> jailbreak detection), and
+/// per-document on ingested file text (<c>text:shieldPrompt</c>'s <c>documents</c> channel, for embedded instructions).
 /// Fails <b>open</b> on any error (logs a warning, reports "nothing detected") so a Content Safety outage never takes chat down —
-/// but says so via <see cref="Verdict.Evaluated"/> and the <c>outcome=failopen</c> counter, so the gap is visible and can be alerted on.
+/// but says so via the <c>Evaluated</c> flag and the <c>outcome=failopen</c> counter, so the gap is visible and can be alerted on.
 /// </summary>
 public sealed class ContentSafetyService : IDisposable
 {
@@ -20,6 +21,13 @@ public sealed class ContentSafetyService : IDisposable
 
     // Content Safety caps a single text input at 10K chars; truncate defensively so an oversized prompt is still screened.
     private const int MaxTextChars = 10_000;
+
+    // Documents per shieldPrompt call; kept small to stay well inside the request-size limit.
+    private const int DocumentBatchSize = 5;
+
+    // Values of the "stage" counter dimension.
+    private const string TurnStage = "turn";
+    private const string DocumentStage = "document";
 
     private readonly AgentOptions _options;
     private readonly ILogger<ContentSafetyService> _logger;
@@ -35,9 +43,11 @@ public sealed class ContentSafetyService : IDisposable
         _options = options;
         _logger = logger;
         _meter = new Meter(MeterName);
-        // One low-cardinality dimension (three values), so this lands in customMetrics and a metric alert can fire on it.
+        // Two low-cardinality dimensions (2 x 3 values), so this lands in customMetrics and a metric alert can fire on it.
         _evaluations = _meter.CreateCounter<long>(
-            "agent.contentsafety.evaluations", "turn", "Content Safety pre-checks by outcome (clean | flagged | failopen).");
+            "agent.contentsafety.evaluations",
+            "screening",
+            "Content Safety screenings by stage (turn | document) and outcome (clean | flagged | failopen).");
         var root = options.ApimGatewayEndpoint!.TrimEnd('/');
         _analyzeUri = new Uri($"{root}/contentsafety/text:analyze?api-version={ApiVersion}");
         _shieldUri = new Uri($"{root}/contentsafety/text:shieldPrompt?api-version={ApiVersion}");
@@ -77,16 +87,55 @@ public sealed class ContentSafetyService : IDisposable
         // Either sub-call falling open leaves the turn only partly screened, so the whole verdict counts as unevaluated.
         var evaluated = analysis.Evaluated && shield.Evaluated;
 
-        RecordOutcome(evaluated ? (flagged ? "flagged" : "clean") : "failopen");
+        RecordOutcome(TurnStage, evaluated ? (flagged ? "flagged" : "clean") : "failopen");
         return new Verdict(flagged, analysis.Categories, shield.Attack, evaluated);
     }
 
+    /// <summary>
+    /// The screening result for one ingested document. <see cref="Evaluated"/> has the same meaning as on
+    /// <see cref="Verdict"/>: false means at least one batch failed open, so "no flags" is not a clean bill of health.
+    /// <see cref="FlaggedIndexes"/> holds every offending chunk's position, so each one can be reported and reviewed
+    /// without ever logging the passage itself.
+    /// </summary>
+    public sealed record DocumentVerdict(IReadOnlyList<int> FlaggedIndexes, bool Evaluated);
+
+    /// <summary>
+    /// Screens extracted document text through Prompt Shields' <c>documents</c> channel — the indirect-attack detector,
+    /// which catches instructions embedded in an uploaded file that the per-turn user-prompt check never looks at.
+    /// Batched to <see cref="DocumentBatchSize"/>. Screens <b>every</b> chunk rather than stopping at the first hit, so
+    /// the caller gets the complete list to review. Never throws (fails open).
+    /// </summary>
+    public async Task<DocumentVerdict> EvaluateDocumentsAsync(IReadOnlyList<string> documents, CancellationToken ct)
+    {
+        var evaluated = true;
+        var flagged = new List<int>();
+
+        for (var offset = 0; offset < documents.Count; offset += DocumentBatchSize)
+        {
+            var batch = documents
+                .Skip(offset)
+                .Take(DocumentBatchSize)
+                .Select(d => d.Length > MaxTextChars ? d[..MaxTextChars] : d)
+                .ToArray();
+
+            var (batchEvaluated, batchFlagged) = await ShieldDocumentsAsync(batch, ct);
+            evaluated &= batchEvaluated;
+            flagged.AddRange(batchFlagged.Select(i => offset + i));
+        }
+
+        RecordOutcome(DocumentStage, flagged.Count > 0 ? "flagged" : evaluated ? "clean" : "failopen");
+        return new DocumentVerdict(flagged, evaluated);
+    }
+
     // Telemetry must never fail a served turn (mirrors TokenUsageTelemetry).
-    private void RecordOutcome(string outcome)
+    private void RecordOutcome(string stage, string outcome)
     {
         try
         {
-            _evaluations.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+            _evaluations.Add(
+                1,
+                new KeyValuePair<string, object?>("stage", stage),
+                new KeyValuePair<string, object?>("outcome", outcome));
         }
         catch (Exception ex)
         {
@@ -139,6 +188,39 @@ public sealed class ContentSafetyService : IDisposable
         {
             _logger.LogWarning(ex, "Content Safety text:shieldPrompt failed; treating as no attack (fail-open).");
             return (false, false);
+        }
+    }
+
+    // text:shieldPrompt with an empty userPrompt: documentsAnalysis carries one attackDetected verdict per document.
+    // Returns every flagged position within the batch.
+    private async Task<(bool Evaluated, IReadOnlyList<int> FlaggedIndexes)> ShieldDocumentsAsync(
+        string[] documents, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = await PostAsync(_shieldUri, new { userPrompt = "", documents }, ct);
+
+            if (!doc.RootElement.TryGetProperty("documentsAnalysis", out var analysis))
+            {
+                return (true, Array.Empty<int>());
+            }
+
+            var flagged = new List<int>();
+            var index = 0;
+            foreach (var entry in analysis.EnumerateArray())
+            {
+                if (entry.TryGetProperty("attackDetected", out var detected) && detected.GetBoolean())
+                {
+                    flagged.Add(index);
+                }
+                index++;
+            }
+            return (true, flagged);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Content Safety document screening failed; treating as no attack (fail-open).");
+            return (false, Array.Empty<int>());
         }
     }
 

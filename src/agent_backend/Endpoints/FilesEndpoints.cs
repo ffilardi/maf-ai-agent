@@ -1,6 +1,8 @@
+using System.Text;
 using AgentBackend.Configuration;
 using AgentBackend.Models;
 using AgentBackend.Services;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace AgentBackend.Endpoints;
 
@@ -49,7 +51,35 @@ public static class FilesEndpoints
             return Results.Problem(statusCode: 400, detail: "Expected multipart/form-data.");
         }
 
-        var form = await request.ReadFormAsync(ct);
+        // The size cap has to bite before the body is buffered, not after: reject a declared Content-Length over the
+        // limit up front, and cap the read itself so a chunked (length-less) upload can't stream in unbounded either.
+        var maxBytes = options.MaxUploadMb * 1024L * 1024L;
+        var maxRequestBytes = maxBytes + MultipartOverheadBytes;
+        var tooLarge = Results.Problem(
+            statusCode: 413, detail: $"File exceeds the {options.MaxUploadMb} MB limit.");
+
+        if (request.ContentLength > maxRequestBytes)
+        {
+            return tooLarge;
+        }
+        if (request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeFeature)
+        {
+            sizeFeature.MaxRequestBodySize = maxRequestBytes;
+        }
+
+        IFormCollection form;
+        try
+        {
+            form = await request.ReadFormAsync(ct);
+        }
+        catch (BadHttpRequestException ex)
+        {
+            // Kestrel raises this both for an over-limit body (413) and for malformed multipart (400); keep its status.
+            return ex.StatusCode == StatusCodes.Status413PayloadTooLarge
+                ? tooLarge
+                : Results.Problem(statusCode: 400, detail: "Malformed multipart/form-data.");
+        }
+
         var file = form.Files["file"];
         var sessionId = form["sessionId"].ToString();
 
@@ -62,16 +92,19 @@ public static class FilesEndpoints
             return Results.Problem(statusCode: 400, detail: "sessionId is required.");
         }
 
-        var extension = Path.GetExtension(file.FileName).TrimStart('.').ToLowerInvariant();
+        // Everything downstream (blob path, preview content type, the type check itself) keys off this name, so
+        // normalise it before any of them see it — never trust the multipart-supplied one.
+        var fileName = SanitizeFileName(file.FileName);
+
+        var extension = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
         if (!SupportedFileTypes.IsSupported(extension))
         {
             return Results.Problem(statusCode: 415, detail: $"Unsupported file type: .{extension}");
         }
 
-        var maxBytes = options.MaxUploadMb * 1024L * 1024L;
         if (file.Length > maxBytes)
         {
-            return Results.Problem(statusCode: 413, detail: $"File exceeds the {options.MaxUploadMb} MB limit.");
+            return tooLarge;
         }
 
         // Attachment cap per conversation, checked before the body is materialised.
@@ -93,10 +126,10 @@ public static class FilesEndpoints
         {
             // Persist + enqueue, then return 202; the pipeline runs in the background and the SPA polls GET /files/{fileId}.
             var fileId = await ingestion.EnqueueAsync(
-                file.FileName, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                fileName, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
                 content, sessionId, ct);
             return Results.Json(
-                new FileStatusResponse(fileId, file.FileName, IngestionStatuses.Processing), statusCode: 202);
+                new FileStatusResponse(fileId, fileName, IngestionStatuses.Processing), statusCode: 202);
         }
         catch (AgentInvocationException ex)
         {
@@ -183,6 +216,64 @@ public static class FilesEndpoints
             contentType,
             fileDownloadName: asAttachment ? status.FileName : null,
             enableRangeProcessing: true);
+    }
+
+    // Multipart framing (boundaries, part headers, the sessionId field) rides along with the file, so the request cap
+    // sits a little above the file cap; the exact file size is still checked against MAX_UPLOAD_MB once parsed.
+    private const long MultipartOverheadBytes = 64 * 1024;
+
+    private const int MaxFileNameLength = 128;
+
+    /// <summary>
+    /// Reduces an uploader-supplied file name to a flat, printable, bounded one: no directory component, no control
+    /// characters, nothing outside <c>[A-Za-z0-9._ -]</c>, no leading dots, capped at 128 chars with the extension kept.
+    /// </summary>
+    internal static string SanitizeFileName(string? fileName)
+    {
+        // Split on both separators by hand — Path.GetFileName treats '\' as an ordinary character on Linux.
+        var name = (fileName ?? string.Empty).Replace('\\', '/');
+        var lastSlash = name.LastIndexOf('/');
+        if (lastSlash >= 0)
+        {
+            name = name[(lastSlash + 1)..];
+        }
+
+        var builder = new StringBuilder(name.Length);
+        foreach (var c in name)
+        {
+            if (c < 0x20 || c == 0x7F)
+            {
+                continue;
+            }
+            builder.Append(char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or ' ' or '-' ? c : '_');
+        }
+
+        var cleaned = builder.ToString().Trim();
+        name = cleaned.TrimStart('.', ' ').Trim();
+
+        // Trimming the leading dots can leave a dotfile (".pdf") or nothing at all ("..."/"") without an extension —
+        // and the extension is what the type check reads — so rebuild one from whatever trailed the last dot.
+        if (Path.GetExtension(name).Length == 0)
+        {
+            var dot = cleaned.LastIndexOf('.');
+            var trailing = dot >= 0 ? cleaned[(dot + 1)..].Trim() : string.Empty;
+            name = trailing.Length > 0
+                ? $"attachment.{trailing}"
+                : name.Length > 0 ? name : "attachment";
+        }
+
+        if (name.Length > MaxFileNameLength)
+        {
+            // Truncate the stem, never the extension: it keys the type check and the preview content type.
+            var extension = Path.GetExtension(name);
+            if (extension.Length >= MaxFileNameLength)
+            {
+                extension = string.Empty;
+            }
+            name = string.Concat(name.AsSpan(0, MaxFileNameLength - extension.Length), extension);
+        }
+
+        return name;
     }
 
     // Extension → (content type, render-inline?) for the preview endpoint; only script-inert, browser-renderable types are inline.

@@ -131,8 +131,12 @@ in a background worker, so a slow document doesn't hold an HTTP request open.
 **Request path** — `POST /files` ([`Endpoints/FilesEndpoints.cs`](../src/agent_backend/Endpoints/FilesEndpoints.cs) → `IngestionService.EnqueueAsync`) accepts
 one document plus the `sessionId` and:
 
-1. **Validate** — supported extension (`SupportedFileTypes`) and size (`MAX_UPLOAD_MB`); else 415/413/400.
-2. **Persist original** — `StorageService` uploads to `{container}/{fileId}/{originalName}` (`fileId` = GUID).
+1. **Validate** — size first (`MAX_UPLOAD_MB`, enforced on `Content-Length` and on the body read itself, *before*
+   the multipart form is buffered), then the file name is sanitised (`SanitizeFileName`: no directory component, no
+   control characters, `[A-Za-z0-9._ -]` only, 128 chars max with the extension preserved) and its extension checked
+   against `SupportedFileTypes`; else 415/413/400.
+2. **Persist original** — `StorageService` uploads to `{container}/{fileId}/{sanitizedName}` (`fileId` = GUID); it
+   rejects any path with a `..` segment, a backslash, or a leading `/` as a last line of defense.
 3. **Record + enqueue** — writes a `processing` status (`IngestionStatusStore`, Table Storage) and enqueues an
    `IngestionMessage` (`QueueService`, storage queue), then returns **202** `{fileId, status:"processing"}`.
 

@@ -128,17 +128,14 @@ public sealed class SearchIndexer(AgentOptions options, ILogger<SearchIndexer> l
         }
     }
 
-    /// <summary>Quotes <paramref name="value"/> as an OData string literal (single quotes doubled); the one escaping rule shared with <see cref="SearchAdapter"/>'s scope filter.</summary>
-    public static string FilterLiteral(string value) => $"'{value.Replace("'", "''")}'";
-
     /// <summary>Deletes every chunk tagged with <paramref name="sessionId"/> (filter-then-delete); called on conversation delete, best-effort.</summary>
     public Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken) =>
-        DeleteByFilterAsync($"sessionId eq {FilterLiteral(sessionId)}", cancellationToken);
+        DeleteByFilterAsync($"sessionId eq {OData.Literal(sessionId)}", cancellationToken);
 
     /// <summary>Deletes every chunk for one <paramref name="fileId"/> within <paramref name="sessionId"/>; called on single-attachment delete, best-effort.</summary>
     public Task DeleteByFileAsync(string sessionId, string fileId, CancellationToken cancellationToken) =>
         DeleteByFilterAsync(
-            $"sessionId eq {FilterLiteral(sessionId)} and fileId eq {FilterLiteral(fileId)}",
+            $"sessionId eq {OData.Literal(sessionId)} and fileId eq {OData.Literal(fileId)}",
             cancellationToken);
 
     private async Task DeleteByFilterAsync(string filter, CancellationToken cancellationToken)

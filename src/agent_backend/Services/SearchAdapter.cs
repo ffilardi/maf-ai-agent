@@ -54,7 +54,7 @@ public sealed class SearchAdapter(AgentOptions options, EmbeddingService embeddi
                     SemanticConfigurationName = SearchIndexer.SemanticConfigurationName,
                 },
                 // Scope to the current conversation's uploaded documents (sessionId guaranteed non-empty above).
-                Filter = $"sessionId eq {SearchIndexer.FilterLiteral(sessionId)}",
+                Filter = $"sessionId eq {OData.Literal(sessionId)}",
             };
 
             // Vector leg of the hybrid query: embed the query text and match it against contentVector.

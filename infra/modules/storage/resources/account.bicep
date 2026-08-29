@@ -34,11 +34,11 @@ param supportsHttpsTrafficOnly bool = true
 @description('Allow anonymous public read access to blobs.')
 param allowBlobPublicAccess bool = false
 
-@description('Allow account-key (shared-key) authorization.')
-param allowSharedKeyAccess bool = true
+@description('Allow account-key (shared-key) authorization. Off by default: every caller (backend App Service, Foundry) authenticates with a managed identity, so a shared key is only a way around that.')
+param allowSharedKeyAccess bool = false
 
-@description('Default to Entra ID (OAuth) authorization in the portal.')
-param defaultOAuth bool = false
+@description('Default to Entra ID (OAuth) authorization in the portal. On, to match allowSharedKeyAccess.')
+param defaultOAuth bool = true
 
 @description('Scope allowed for copy operations.')
 param allowedCopyScope string = 'PrivateLink'

@@ -25,8 +25,8 @@ param publicNetworkAccess string = 'Enabled'
 @description('Allow AI Foundry project management on the account.')
 param allowProjectManagement bool = true
 
-@description('Disable local (key-based) authentication.')
-param disableLocalAuth bool = false
+@description('Disable local (key-based) authentication. On by default: all traffic reaches the account through APIM, which injects its managed identity, so an account key is only a way around the gateway.')
+param disableLocalAuth bool = true
 
 @description('Restrict outbound network access from the account.')
 param restrictOutboundNetworkAccess bool = false

@@ -19,6 +19,14 @@ param enableRbacAuthorization bool = true
 @description('Allow ARM template deployments to retrieve secrets.')
 param enabledForTemplateDeployment bool = true
 
+@description('Days a soft-deleted vault is recoverable (7-90).')
+@minValue(7)
+@maxValue(90)
+param softDeleteRetentionInDays int = 7
+
+@description('Block purging a soft-deleted vault. Off by default and irreversible once on: it also blocks `azd down --purge` from reclaiming the vault name, which this repo\'s teardown flow relies on. Turn it on outside demo use.')
+param enablePurgeProtection bool = false
+
 @description('Public network access setting for the vault.')
 param publicNetworkAccess string = 'Enabled'
 
@@ -58,6 +66,9 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     tenantId: subscription().tenantId
     enableRbacAuthorization: enableRbacAuthorization
     enabledForTemplateDeployment: enabledForTemplateDeployment
+    softDeleteRetentionInDays: softDeleteRetentionInDays
+    // Only ever sent as `true` — Key Vault rejects an explicit `false`, and the property can never be turned back off.
+    enablePurgeProtection: enablePurgeProtection ? true : null
     publicNetworkAccess: publicNetworkAccess
     networkAcls: {
       bypass: networkAclsBypass

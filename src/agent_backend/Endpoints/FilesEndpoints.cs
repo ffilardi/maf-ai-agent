@@ -151,7 +151,7 @@ public static class FilesEndpoints
     // Serves the original uploaded file for the citation preview popup. The status row (partitioned by sessionId) scopes
     // the lookup to this conversation and supplies the file name that keys the blob path. Inline by default; ?download=1 forces an attachment disposition.
     private static async Task<IResult> GetFileContentAsync(
-        string fileId, string? sessionId, bool? download, HttpResponse response, AgentOptions options,
+        string fileId, string? sessionId, bool? download, AgentOptions options,
         IServiceProvider services, CancellationToken ct)
     {
         if (ValidateFilesRequest(options, sessionId) is { } problem)
@@ -170,14 +170,14 @@ public static class FilesEndpoints
         var content = await storage.DownloadAsync($"{fileId}/{status.FileName}", ct);
 
         // Stored-XSS defense: derive the content type from the validated extension (never the uploader's), serve only an
-        // inline allowlist, and force everything else to application/octet-stream + attachment. `nosniff` blocks body re-sniffing.
+        // inline allowlist, and force everything else to application/octet-stream + attachment. `nosniff` (applied to every
+        // response by the middleware in Program.cs) blocks body re-sniffing.
         var extension = Path.GetExtension(status.FileName).TrimStart('.').ToLowerInvariant();
         var (contentType, inline) = InlineContentTypes.TryGetValue(extension, out var mapped)
             ? mapped
             : ("application/octet-stream", false);
         var asAttachment = download == true || !inline;
 
-        response.Headers["X-Content-Type-Options"] = "nosniff";
         return Results.File(
             content.ToArray(),
             contentType,

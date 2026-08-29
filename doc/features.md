@@ -38,7 +38,7 @@ The agent frontend is a Vite + React (TypeScript) single-page app providing a us
 - [`src/components/Chat.tsx`](../src/agent_frontend/src/components/Chat.tsx) - `useChat` wiring + custom transport (`{sessionId, chatInput, userName}` contract)
 - `src/components/ai-elements/*` - Conversation / Message / Response / PromptInput (AI Elements-shaped)
 - [`src/lib/backend.ts`](../src/agent_frontend/src/lib/backend.ts), [`src/lib/session.ts`](../src/agent_frontend/src/lib/session.ts) - backend URL/types and the persisted conversation id
-- [`public/staticwebapp.config.json`](../src/agent_frontend/public/staticwebapp.config.json) - SPA fallback routing for Azure Static Web Apps
+- [`scripts/gen-swa-config.mjs`](../src/agent_frontend/scripts/gen-swa-config.mjs) - generates `public/staticwebapp.config.json` on `prebuild`: SPA fallback routing for Azure Static Web Apps plus the security `globalHeaders` (CSP naming the provisioned backend origin, `nosniff`, `x-frame-options`, `referrer-policy`, `permissions-policy`, HSTS)
 
 ## Azure Infrastructure Services
 

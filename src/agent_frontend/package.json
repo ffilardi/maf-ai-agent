@@ -6,6 +6,7 @@
   "description": "MAF AI agent web chat — Vite + React SPA talking to the C# backend over the Vercel AI SDK UI Message Stream protocol.",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/gen-swa-config.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

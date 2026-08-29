@@ -1,4 +1,4 @@
-import { BACKEND_URL } from '@/lib/backend';
+import { BACKEND_URL, SESSION_HEADER, problemMessage } from '@/lib/backend';
 
 /** File-attachment upload + status polling against the backend's `POST /files` ingestion pipeline. */
 
@@ -67,17 +67,7 @@ export class PollCancelledError extends Error {}
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function readProblem(response: Response, fallback: string): Promise<string> {
-  // The backend surfaces failures as RFC 7807 problem+json ({ detail, title, status }).
-  try {
-    const problem = await response.json();
-    return problem.detail || problem.title || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-/** Uploads one file for ingestion; resolves with the initial (`processing`) status or throws. */
+/** Uploads one file for ingestion; resolves with the initial (`processing`) status, or throws with the backend's own wording (413/409/429). */
 export async function uploadFile(sessionId: string, file: File): Promise<FileStatusResult> {
   const body = new FormData();
   body.append('file', file);
@@ -85,13 +75,14 @@ export async function uploadFile(sessionId: string, file: File): Promise<FileSta
 
   let response: Response;
   try {
-    response = await fetch(FILES_URL, { method: 'POST', body });
+    // The backend rate-limits uploads per conversation and can't read the multipart body to partition on it.
+    response = await fetch(FILES_URL, { method: 'POST', body, headers: { [SESSION_HEADER]: sessionId } });
   } catch {
     throw new Error('Network error — could not reach the backend.');
   }
 
   if (!response.ok) {
-    throw new Error(await readProblem(response, `Upload failed (${response.status}).`));
+    throw new Error(await problemMessage(response, `Upload failed (${response.status}).`));
   }
 
   return (await response.json()) as FileStatusResult;
@@ -115,7 +106,7 @@ export async function deleteFile(sessionId: string, fileId: string): Promise<boo
   const url = `${FILES_URL}/${encodeURIComponent(fileId)}?sessionId=${encodeURIComponent(sessionId)}`;
   try {
     const res = await fetch(url, { method: 'DELETE' });
-    if (!res.ok) throw new Error(await readProblem(res, `Delete failed (${res.status}).`));
+    if (!res.ok) throw new Error(await problemMessage(res, `Delete failed (${res.status}).`));
     return true;
   } catch {
     return false;
@@ -127,7 +118,7 @@ export async function getFileStatus(sessionId: string, fileId: string): Promise<
   const url = `${FILES_URL}/${encodeURIComponent(fileId)}?sessionId=${encodeURIComponent(sessionId)}`;
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(await readProblem(response, `Status check failed (${response.status}).`));
+    throw new Error(await problemMessage(response, `Status check failed (${response.status}).`));
   }
   return (await response.json()) as FileStatusResult;
 }

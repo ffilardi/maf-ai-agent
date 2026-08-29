@@ -15,16 +15,24 @@ public static class ChatEndpoints
 
     public static void MapChatEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/chat", PostChatAsync);
-        app.MapPost("/chat/stream", PostChatStream);
+        // Only the POSTs are rate-limited: they cost a model turn, unlike the cheap Cosmos reads the SPA polls.
+        app.MapPost("/chat", PostChatAsync).RequireRateLimiting(RateLimiting.ChatPolicy);
+        app.MapPost("/chat/stream", PostChatStream).RequireRateLimiting(RateLimiting.ChatPolicy);
         app.MapGet("/chat/sessions", GetSessionsAsync);
         app.MapGet("/chat/{sessionId}/messages", GetSessionMessagesAsync);
         app.MapDelete("/chat/{sessionId}", DeleteSessionAsync);
     }
 
-    // Shared 503 guards for both chat handlers; returns the problem result when the pipeline can't serve the request, else null.
+    // Shared guards for both chat handlers, run before streaming starts so failures get a real HTTP status; null = OK.
     private static IResult? ValidateChatConfig(AgentOptions options, ChatRequest req)
     {
+        // Input cost ceiling; the default matches Content Safety's screening cap, so nothing unscreened reaches the model.
+        if (req.ChatInput.Length > options.MaxInputChars)
+        {
+            return Results.Problem(
+                statusCode: 413,
+                detail: $"Message exceeds the {options.MaxInputChars:N0}-character limit.");
+        }
         if (!options.HasApimConfig)
         {
             return Results.Problem(statusCode: 503, detail: "Agent not configured (APIM settings missing).");

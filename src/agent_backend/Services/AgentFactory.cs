@@ -108,8 +108,9 @@ public sealed class AgentFactory
             {
                 // Default prompt; a request may replace it per-turn in ChatService.
                 Instructions = options.AgentInstructions ?? DefaultAgentInstructions,
-                // Request a reasoning summary every turn (effort overridden per-request in ChatService); summaries are best-effort.
-                RawRepresentationFactory = _ => BuildResponseOptions(reasoningEffort: null),
+                // Reasoning summary (best-effort) plus the per-turn ceilings; ChatService re-sets this per request.
+                RawRepresentationFactory = _ => BuildResponseOptions(
+                    reasoningEffort: null, options.MaxOutputTokens, options.MaxToolCallsPerTurn),
             },
         };
 
@@ -221,7 +222,8 @@ public sealed class AgentFactory
     }
 
     // Builds the Responses request template MAF merges turn messages into: requests a reasoning summary and applies effort when supplied.
-    public static CreateResponseOptions BuildResponseOptions(string? reasoningEffort)
+    public static CreateResponseOptions BuildResponseOptions(
+        string? reasoningEffort, int? maxOutputTokens = null, int? maxToolCalls = null, string? endUserId = null)
     {
         var reasoning = new ResponseReasoningOptions
         {
@@ -241,6 +243,12 @@ public sealed class AgentFactory
         return new CreateResponseOptions
         {
             ReasoningOptions = reasoning,
+            // Per-turn output ceiling (MAX_OUTPUT_TOKENS); reasoning tokens count against it.
+            MaxOutputTokenCount = maxOutputTokens,
+            // Bounds the tool-call loop the RAG prompt would otherwise leave unbounded.
+            MaxToolCallCount = maxToolCalls,
+            // Per-conversation handle for abuse monitoring; sessionId is a random UUID, so no PII.
+            EndUserId = endUserId,
             // store=false: run stateless so Cosmos owns history (store=true returns a server-side conversation id that conflicts with the history provider).
             StoredOutputEnabled = false,
         };

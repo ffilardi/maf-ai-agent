@@ -24,6 +24,11 @@ public sealed class AgentOptions
     public int MaxContextWindowTokens { get; init; } = 128_000;
     public int MaxOutputTokens { get; init; } = 16_384;
 
+    // Per-turn input cap; the default matches ContentSafetyService's 10K screening cap, so nothing unscreened reaches the model.
+    public int MaxInputChars { get; init; } = 10_000;
+    // Ceiling on tool calls per turn; the RAG prompt invites repeated searching, and each call costs an embedding + a search.
+    public int MaxToolCallsPerTurn { get; init; } = 8;
+
     // Cosmos transcript retention: 0 (default) = never expire (MessageTtlSeconds = -1); a positive value sets a TTL in days.
     public int MaxHistoryTtlDays { get; init; } = 0;
 
@@ -49,6 +54,8 @@ public sealed class AgentOptions
     public int EmbeddingMaxRetries { get; init; } = 5;
     // Server-side upload size cap (MB).
     public int MaxUploadMb { get; init; } = 10;
+    // Attachments per conversation: MaxUploadMb bounds one file, this bounds how many.
+    public int MaxFilesPerSession { get; init; } = 20;
 
     // Async ingestion (POST /files enqueues; a BackgroundService consumes). Poison queue is "{IngestionQueue}-poison".
     public string IngestionQueue { get; init; } = "ingestion";
@@ -126,6 +133,8 @@ public sealed class AgentOptions
         MaxHistoryMessages = int.TryParse(config["MAX_HISTORY_MESSAGES"], out var mhm) && mhm > 0 ? mhm : 100,
         MaxContextWindowTokens = int.TryParse(config["MAX_CONTEXT_WINDOW_TOKENS"], out var mcw) && mcw > 0 ? mcw : 128_000,
         MaxOutputTokens = int.TryParse(config["MAX_OUTPUT_TOKENS"], out var mot) && mot > 0 ? mot : 16_384,
+        MaxInputChars = int.TryParse(config["MAX_INPUT_CHARS"], out var mic) && mic > 0 ? mic : 10_000,
+        MaxToolCallsPerTurn = int.TryParse(config["MAX_TOOL_CALLS_PER_TURN"], out var mtc) && mtc > 0 ? mtc : 8,
         MaxHistoryTtlDays = int.TryParse(config["MAX_HISTORY_TTL_DAYS"], out var mht) && mht > 0 ? mht : 0,
         AiSearchEndpoint = config["AI_SEARCH_ENDPOINT"],
         AiSearchSubscriptionKey = config["AI_SEARCH_SUBSCRIPTION_KEY"],
@@ -137,6 +146,7 @@ public sealed class AgentOptions
         EmbeddingBatchSize = int.TryParse(config["AI_EMBEDDING_BATCH_SIZE"], out var ebs) && ebs > 0 ? ebs : 16,
         EmbeddingMaxRetries = int.TryParse(config["AI_EMBEDDING_MAX_RETRIES"], out var emr) && emr >= 0 ? emr : 5,
         MaxUploadMb = int.TryParse(config["MAX_UPLOAD_MB"], out var mb) && mb > 0 ? mb : 10,
+        MaxFilesPerSession = int.TryParse(config["MAX_FILES_PER_SESSION"], out var mfs) && mfs > 0 ? mfs : 20,
         IngestionQueue = config["INGESTION_QUEUE"] ?? "ingestion",
         IngestionStatusTable = config["INGESTION_STATUS_TABLE"] ?? "ingestionstatus",
         ContentSafetyMode = (config["CONTENT_SAFETY_MODE"] ?? "off").Trim().ToLowerInvariant(),

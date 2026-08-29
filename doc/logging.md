@@ -178,8 +178,8 @@ The streaming turn has two failure shapes, and each logs differently (`ChatServi
 `UiMessageStreamResult`):
 
 1. **Model/gateway failure with no content yet** — surfaced to the client as an in-band `error` stream part
-   (HTTP status can't travel once streaming headers are committed). Not separately logged here; the failed
-   dependency is already captured by auto-collection.
+   (HTTP status can't travel once streaming headers are committed). Logged at **Error** with the exception and
+   the session id; the client sees only fixed text and a correlation id (see below), never the provider's message.
 2. **End-of-turn persist failure** (the model answered, then the Cosmos history write threw — e.g. the
    provider's `InvalidOperationException("Batch operation failed with status: BadRequest")`) — logged at
    **Error** noting *the turn was not saved to Cosmos*, and the stream is completed normally so the client
@@ -188,6 +188,24 @@ The streaming turn has two failure shapes, and each logs differently (`ChatServi
 3. **Anything that still escapes** `ChatService` reaches `UiMessageStreamResult`'s last-resort `catch`, which
    logs at **Error** and writes `[DONE]` so the connection isn't reset (`ERR_CONNECTION_RESET`). Client
    disconnects (cancellation) return quietly without logging noise.
+
+## What the client is told when something fails
+
+Provider and gateway exception messages name backend URLs, deployment names, and raw error payloads, so none of
+them reach the browser (CWE-209). Every failure path replaces the text at the boundary and keeps the exception in
+the log, tied together by a correlation id — `Activity.Current?.Id` when tracing is on, else the request id, which
+is what App Insights already indexes the operation under.
+
+| Path | Boundary | What the client gets |
+|------|----------|----------------------|
+| `POST /chat`, `POST /files` | `Endpoints/ProblemResults.cs` | RFC 7807 `detail` = fixed text per status + `(reference: …)` |
+| `POST /chat/stream` | `ChatService.StreamAsync` | in-band `error` part with the same fixed text + reference |
+| `GET /files/{fileId}` after an ingestion failure | `QueueIngestionWorker` | status row `error` = fixed text + `(reference: {fileId})` |
+
+The fixed texts come from `AgentInvocationException.SafeMessage`: busy (429), rejected by the gateway (401/403),
+could not be processed (400), temporarily unavailable (503), unexpected error (everything else). The one message
+shown verbatim is the Content Safety block notice — we author it, it names nothing, and it is the whole point of
+the check; it travels on an `AgentInvocationException` marked `ClientSafe`.
 
 ## Conversation history — what is (and isn't) persisted
 

@@ -56,7 +56,7 @@ public static class ChatEndpoints
 
     // Buffered chat endpoint — runs one MAF agent turn through the APIM gateway.
     private static async Task<IResult> PostChatAsync(
-        ChatRequest req, AgentOptions options, IServiceProvider services, CancellationToken ct)
+        ChatRequest req, AgentOptions options, IServiceProvider services, HttpContext http, CancellationToken ct)
     {
         // Short-circuit empty/whitespace input to avoid an unnecessary agent call.
         if (string.IsNullOrWhiteSpace(req.ChatInput))
@@ -77,8 +77,8 @@ public static class ChatEndpoints
         }
         catch (AgentInvocationException ex)
         {
-            // Provider/gateway errors were already mapped to an HTTP status in ChatService.
-            return Results.Problem(statusCode: ex.StatusCode, detail: ex.Message);
+            // Provider/gateway errors were already mapped to an HTTP status in ChatService; their text stays in the log.
+            return ProblemResults.FromAgentFailure(ex, http);
         }
     }
 

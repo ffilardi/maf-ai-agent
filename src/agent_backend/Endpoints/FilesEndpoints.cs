@@ -100,8 +100,8 @@ public static class FilesEndpoints
         }
         catch (AgentInvocationException ex)
         {
-            // Storage/queue failures were mapped to an HTTP status in IngestionService.
-            return Results.Problem(statusCode: ex.StatusCode, detail: ex.Message);
+            // Storage/queue failures were mapped to an HTTP status in IngestionService; their text stays in the log.
+            return ProblemResults.FromAgentFailure(ex, request.HttpContext);
         }
     }
 

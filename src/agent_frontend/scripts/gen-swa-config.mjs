@@ -5,7 +5,7 @@
 // own copy does, through VITE_AGENT_BACKEND_URL, so this file is generated rather than checked in. Read it with
 // Vite's own loader so the .env cascade (including the .env.production.local the azd prebuild hook writes) resolves
 // identically to what the bundle bakes in.
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
@@ -59,5 +59,7 @@ const config = {
 };
 
 const target = resolve(root, 'public/staticwebapp.config.json');
+// public/ holds nothing else, so it is absent from a fresh clone.
+mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`);
 console.log(`[swa-config] wrote ${target}${backendOrigin ? ` (backend origin: ${backendOrigin})` : ''}`);

@@ -27,7 +27,7 @@ public sealed class StorageService(AgentOptions options, TokenCredential credent
     public async Task<string> UploadAsync(
         string blobPath, BinaryData content, string contentType, CancellationToken cancellationToken)
     {
-        var blob = _container.GetBlobClient(blobPath);
+        var blob = _container.GetBlobClient(ValidatePath(blobPath, nameof(blobPath)));
         await blob.UploadAsync(
             content.ToStream(),
             new BlobUploadOptions { HttpHeaders = new BlobHttpHeaders { ContentType = contentType } },
@@ -39,7 +39,8 @@ public sealed class StorageService(AgentOptions options, TokenCredential credent
     /// <summary>Deletes every blob under <paramref name="prefix"/> (e.g. <c>{fileId}/</c>) — the original plus its extracted output.</summary>
     public async Task DeleteByPrefixAsync(string prefix, CancellationToken cancellationToken)
     {
-        var blobs = _container.GetBlobsAsync(prefix: prefix, cancellationToken: cancellationToken);
+        var blobs = _container.GetBlobsAsync(
+            prefix: ValidatePath(prefix, nameof(prefix)), cancellationToken: cancellationToken);
         await foreach (var blob in blobs.WithCancellation(cancellationToken))
         {
             await _container.DeleteBlobIfExistsAsync(blob.Name, cancellationToken: cancellationToken);
@@ -49,8 +50,24 @@ public sealed class StorageService(AgentOptions options, TokenCredential credent
     /// <summary>Downloads the blob at <paramref name="blobPath"/> (used by the worker and the preview endpoint).</summary>
     public async Task<BinaryData> DownloadAsync(string blobPath, CancellationToken cancellationToken)
     {
-        var blob = _container.GetBlobClient(blobPath);
+        var blob = _container.GetBlobClient(ValidatePath(blobPath, nameof(blobPath)));
         var response = await blob.DownloadContentAsync(cancellationToken);
         return response.Value.Content;
+    }
+
+    /// <summary>
+    /// Rejects a path that could address a blob outside its own <c>{fileId}/</c> folder. The trailing segment is an
+    /// uploader-supplied file name (sanitised at the endpoint), so this is the last line of defense, not the first.
+    /// </summary>
+    private static string ValidatePath(string path, string paramName)
+    {
+        if (string.IsNullOrWhiteSpace(path)
+            || path.StartsWith('/')
+            || path.Contains('\\')
+            || path.Split('/').Any(segment => segment == ".."))
+        {
+            throw new ArgumentException($"Invalid blob path: '{path}'.", paramName);
+        }
+        return path;
     }
 }

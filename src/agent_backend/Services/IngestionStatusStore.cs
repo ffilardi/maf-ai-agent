@@ -40,7 +40,7 @@ public sealed class IngestionStatusStore(AgentOptions options, TokenCredential c
     private async Task<bool> TableExistsAsync(CancellationToken cancellationToken)
     {
         var tables = _tableService.QueryAsync(
-            filter: $"TableName eq '{options.IngestionStatusTable}'", cancellationToken: cancellationToken);
+            filter: $"TableName eq {OData.Literal(options.IngestionStatusTable)}", cancellationToken: cancellationToken);
         await foreach (var _ in tables)
         {
             return true;

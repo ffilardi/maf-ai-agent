@@ -60,7 +60,8 @@ Steps:
 
 ## Working against the provisioned resources
 
-Foundry, Azure AI Search, and Storage are all provisioned with **key-based access disabled**: the app reaches
+Foundry, Azure AI Search, and Storage are all provisioned with **key-based access disabled**, and Cosmos DB is
+reached with Entra ID rather than its account key: the app reaches
 Foundry and Search only through APIM (which injects its own managed identity), and reaches Storage with the
 App Service's managed identity. That closes the paths around the gateway — and it means an account key or an
 admin key will no longer get *you* in either.
@@ -68,9 +69,9 @@ admin key will no longer get *you* in either.
 ### Running the backend locally
 
 `dotnet run` authenticates with `DefaultAzureCredential`, which picks up your `az login` — but your principal
-starts with no data-plane roles. Storage is the only service the backend talks to with that credential (model,
-search, Document Intelligence, and Content Safety all go through APIM with the subscription key), so grant
-yourself the same three roles the App Service holds, once per environment:
+starts with no data-plane roles. Storage and Cosmos are the services the backend talks to with that credential
+(model, search, Document Intelligence, and Content Safety all go through APIM with the subscription key), so grant
+yourself the same roles the App Service holds, once per environment:
 
 ```shell
 me=$(az ad signed-in-user show --query id -o tsv)
@@ -79,6 +80,26 @@ scope=$(az storage account show -g <rg-common-...> -n <storage-account-name> --q
 for role in "Storage Blob Data Contributor" "Storage Queue Data Contributor" "Storage Table Data Contributor"; do
   az role assignment create --assignee "$me" --role "$role" --scope "$scope"
 done
+
+# Cosmos keeps documents behind its own SQL role system — Azure RBAC roles grant no data access at all.
+az cosmosdb sql role assignment create \
+  -g <rg-common-...> -a <cosmos-account-name> \
+  --role-definition-id 00000000-0000-0000-0000-000000000002 \
+  --principal-id "$me" --scope "/"
+```
+
+`COSMOS_USE_RBAC=false` plus a `COSMOS_KEY` is the rollback if you need it, and it works only while the account
+still accepts keys (see below).
+
+### Turning Cosmos keys off
+
+`disableCosmosLocalAuth` in `infra/main.bicep` defaults to **false**, and turning it on takes **two passes**: the
+first `azd provision` creates the backend's Cosmos DB Data Contributor assignment, and only a later provision may
+disable keys. Doing both in one pass can wedge the deployment and lock the app out of its own data. Once the app
+is confirmed working over RBAC, add the parameter to `infra/main.parameters.json` and provision again:
+
+```json
+"disableCosmosLocalAuth": { "value": true }
 ```
 
 ### Browsing the resources in the portal
@@ -93,6 +114,6 @@ done
   ```
   Reviewing a single flagged chunk doesn't need this — that path goes through APIM (see
   [`rag.md`](rag.md#reviewing-a-flagged-passage)).
+- **Cosmos** — Data Explorer needs the same SQL role as above; the account's *Keys* blade is unused by the app.
 - **Foundry** — the account's *Keys and Endpoint* blade shows keys as disabled. The playground authenticates with
   your Entra identity; `Cognitive Services User` on the account is what it needs.
-

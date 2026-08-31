@@ -130,7 +130,6 @@ Because unmatched paths and keyless requests are both rejected ahead of policy e
 **Key Vault Secrets:**
 
 - `apim-aifoundry-api-key` - APIM subscription key for AI Foundry API access. Sourced from a dedicated `ai-gateway` subscription scoped to `/apis` (all imported APIs), **not** the built-in `master` subscription — least-privilege, so the key cannot reach the APIM management/admin surface.
-- `cosmos-db-key` - Cosmos DB primary key for conversation storage
 - `ai-search-key` - Azure AI Search admin key for the RAG index
 
 **Environment Variables:**
@@ -143,7 +142,8 @@ The backend agent requires the following configuration (set via App Service sett
 - `EXPOSE_DEFAULT_PROMPT` - Advertise the effective base prompt on `GET /config` (default `true`; the Azure deploy sets `false`)
 - `ALLOW_SYSTEM_PROMPT_OVERRIDE` - Honour a per-request `systemPrompt` (default `true`)
 - `COSMOS_ENDPOINT` - Cosmos DB account endpoint
-- `COSMOS_KEY` - Cosmos DB access key (from Key Vault)
+- `COSMOS_USE_RBAC` - Authenticate to Cosmos with the App Service's managed identity (default `true`; the deploy sets it explicitly and no Cosmos key is stored anywhere)
+- `COSMOS_KEY` - Cosmos DB access key. Only read when `COSMOS_USE_RBAC=false`
 - `COSMOS_DB` - Database name (default: `agent_db`)
 - `COSMOS_CONTAINER` - Container name (default: `conversations`)
 - `AI_SEARCH_ENDPOINT` - APIM AI Search API base (search routes through the gateway; enables the RAG `SearchChatAttachments` tool when set)

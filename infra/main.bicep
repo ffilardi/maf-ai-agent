@@ -23,6 +23,9 @@ param location string
 ])
 param staticWebAppLocation string = 'westus2'
 
+@description('Disable key-based authentication on the Cosmos DB account. Deploy it in TWO passes: the first provision creates the backend\'s Cosmos DB Data Contributor assignment, and only a later provision with this set to true may turn keys off. Flipping it in the same pass that creates the assignment can wedge the deployment and lock the app out of its own data.')
+param disableCosmosLocalAuth bool = false
+
 @description('Ship verbose allLogs platform logs to Log Analytics. True (default) = full gateway/resource request logs; set false for metrics-only and lower ingestion cost.')
 param enableVerboseLogs bool = true
 
@@ -129,6 +132,7 @@ module cosmosDb './modules/cosmosdb/cosmosdb.bicep' = {
     location: location
     tags: tags
     cosmosDbName: cosmosDbName
+    disableLocalAuth: disableCosmosLocalAuth
     logAnalyticsWorkspaceId: monitor.outputs.logAnalyticsWorkspaceId
     enableVerboseLogs: enableVerboseLogs
   }

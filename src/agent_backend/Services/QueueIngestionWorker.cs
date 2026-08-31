@@ -91,7 +91,13 @@ public sealed class QueueIngestionWorker(
                 logger.LogError(
                     ex, "Giving up on {FileName} ({FileId}) after {Attempts} attempts; moving to poison.",
                     payload.FileName, payload.FileId, message.DequeueCount);
-                await statusStore.SetFailedAsync(payload.SessionId, payload.FileId, payload.FileName, ex.Message, ct);
+                // The status row is read back by the SPA, so it records fixed text, not the provider's message
+                // (CWE-209); the fileId logged above is the handle for the full exception.
+                await statusStore.SetFailedAsync(
+                    payload.SessionId, payload.FileId, payload.FileName,
+                    $"{AgentInvocationException.SafeMessage(AgentInvocationException.MapExceptionStatus(ex))} "
+                        + $"(reference: {payload.FileId})",
+                    ct);
                 await queue.SendToPoisonAsync(message.MessageText, ct);
                 await queue.DeleteAsync(message, ct);
             }

@@ -10,8 +10,10 @@ public static class MetaEndpoints
 {
     public static void MapMetaEndpoints(this IEndpointRouteBuilder app)
     {
-        // Index route — reports the runtime (e.g. ".NET 10.0.10").
-        app.MapGet("/", () => Results.Text($"Running on {RuntimeInformation.FrameworkDescription}"));
+        // Index route. The exact runtime build (e.g. ".NET 10.0.10") is a version-fingerprinting freebie for an
+        // anonymous caller, so it shows only in Development; elsewhere the route is a static liveness banner.
+        app.MapGet("/", (IHostEnvironment env) => Results.Text(
+            env.IsDevelopment() ? $"Running on {RuntimeInformation.FrameworkDescription}" : "Agent backend"));
 
         // Health check endpoint.
         app.MapGet("/ping", () => Results.Json(new { status = "healthy" }));

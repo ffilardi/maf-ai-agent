@@ -1,8 +1,10 @@
 using System.ClientModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AgentBackend.Configuration;
 using AgentBackend.Models;
+using Azure;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 // The DTO wins the name clash with Microsoft.Extensions.AI.ChatResponse (ChatMessage below stays the M.E.AI type).
@@ -40,7 +42,7 @@ public sealed class ChatService(
         var block = await CheckContentSafetyAsync(request, ct);
         if (block is not null)
         {
-            throw new AgentInvocationException(403, block);
+            throw new AgentInvocationException(403, block, clientSafe: true);
         }
 
         var (message, session) = await BuildTurnAsync(request, ct);
@@ -107,7 +109,7 @@ public sealed class ChatService(
         while (true)
         {
             AgentResponseUpdate? update = null;
-            string? errorText = null;
+            Exception? failure = null;
             try
             {
                 if (!await enumerator.MoveNextAsync())
@@ -123,10 +125,10 @@ public sealed class ChatService(
             }
             catch (Exception ex)
             {
-                errorText = ex.Message;
+                failure = ex;
             }
 
-            if (errorText is not null)
+            if (failure is not null)
             {
                 // Updates already present ⇒ the answer succeeded and this is the end-of-turn Cosmos persist failing:
                 // log it and complete the stream normally (the post-loop closers finish any open blocks) so the client
@@ -135,16 +137,25 @@ public sealed class ChatService(
                 {
                     // Log the persist payload (roles/content-types/sizes only, never text) so a batch-size rejection is self-diagnosing.
                     logger.LogError(
-                        "Model responded but history persist failed (session={SessionId}): {Error}; "
+                        failure,
+                        "Model responded but history persist failed (session={SessionId}); "
                             + "completing stream — this turn was NOT saved to Cosmos. Persist payload: {Payload}",
                         request.SessionId,
-                        errorText,
                         DescribePersistPayload(updates.ToAgentResponse()));
                     break;
                 }
 
                 // No streamed content ⇒ a model/gateway failure; no blocks are open yet, so the error part is terminal.
-                yield return new UiStreamPart("error", ErrorText: errorText);
+                // The provider's message names backend URLs and raw gateway payloads, so it stays in the log: the
+                // client gets fixed text plus the correlation id App Insights already indexes the turn under.
+                var reference = Activity.Current?.Id;
+                logger.LogError(
+                    failure, "Streaming turn failed before any content (session={SessionId}, reference={Reference}).",
+                    request.SessionId, reference);
+                yield return new UiStreamPart(
+                    "error",
+                    ErrorText: AgentInvocationException.SafeMessage(
+                        AgentInvocationException.MapExceptionStatus(failure), reference));
                 yield break;
             }
 
@@ -480,11 +491,17 @@ public sealed class ChatService(
 
 /// <summary>
 /// Raised when an agent invocation fails; <see cref="StatusCode"/> is the HTTP status to return.
+/// <paramref name="clientSafe"/> marks a message we authored ourselves and may show verbatim; everything else
+/// originates in the provider and is replaced by <see cref="SafeMessage"/> at the boundary.
 /// </summary>
-public sealed class AgentInvocationException(int statusCode, string message, Exception? inner = null)
+public sealed class AgentInvocationException(
+    int statusCode, string message, Exception? inner = null, bool clientSafe = false)
     : Exception(message, inner)
 {
     public int StatusCode { get; } = statusCode;
+
+    /// <summary>True when <see cref="Exception.Message"/> is ours to show (e.g. the Content Safety block notice).</summary>
+    public bool ClientSafe { get; } = clientSafe;
 
     /// <summary>Provider/gateway error codes → HTTP status: pass through the known ones, default the rest to 500.</summary>
     public static int MapProviderStatus(int providerStatus) => providerStatus switch
@@ -496,4 +513,30 @@ public sealed class AgentInvocationException(int statusCode, string message, Exc
         503 => 503, // ServiceUnavailable
         _ => 500,
     };
+
+    /// <summary>The same mapping for an exception that hasn't been wrapped yet (worker paths, the streaming loop).</summary>
+    public static int MapExceptionStatus(Exception exception) => exception switch
+    {
+        AgentInvocationException agent => agent.StatusCode,
+        ClientResultException client => MapProviderStatus(client.Status),
+        RequestFailedException request => MapProviderStatus(request.Status),
+        _ => 500,
+    };
+
+    /// <summary>
+    /// Fixed, client-safe text for a failure status. Provider messages carry backend URLs, deployment names, and raw
+    /// gateway payloads (CWE-209), so callers log the exception and hand the browser this plus a correlation id.
+    /// </summary>
+    public static string SafeMessage(int statusCode, string? reference = null)
+    {
+        var text = statusCode switch
+        {
+            429 => "The service is busy, please retry shortly.",
+            401 or 403 => "The request was rejected by the gateway.",
+            400 => "The request could not be processed.",
+            503 => "The service is temporarily unavailable.",
+            _ => "An unexpected error occurred.",
+        };
+        return string.IsNullOrEmpty(reference) ? text : $"{text} (reference: {reference})";
+    }
 }

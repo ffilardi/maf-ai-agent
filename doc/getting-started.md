@@ -57,3 +57,42 @@ Steps:
    ```
 
 3. Open VS Code and load the local project folder
+
+## Working against the provisioned resources
+
+Foundry, Azure AI Search, and Storage are all provisioned with **key-based access disabled**: the app reaches
+Foundry and Search only through APIM (which injects its own managed identity), and reaches Storage with the
+App Service's managed identity. That closes the paths around the gateway — and it means an account key or an
+admin key will no longer get *you* in either.
+
+### Running the backend locally
+
+`dotnet run` authenticates with `DefaultAzureCredential`, which picks up your `az login` — but your principal
+starts with no data-plane roles. Storage is the only service the backend talks to with that credential (model,
+search, Document Intelligence, and Content Safety all go through APIM with the subscription key), so grant
+yourself the same three roles the App Service holds, once per environment:
+
+```shell
+me=$(az ad signed-in-user show --query id -o tsv)
+scope=$(az storage account show -g <rg-common-...> -n <storage-account-name> --query id -o tsv)
+
+for role in "Storage Blob Data Contributor" "Storage Queue Data Contributor" "Storage Table Data Contributor"; do
+  az role assignment create --assignee "$me" --role "$role" --scope "$scope"
+done
+```
+
+### Browsing the resources in the portal
+
+- **Storage** — the account defaults to Entra authorization; Storage Explorer and the portal's blob browser must
+  be switched from "Access key" to "Microsoft Entra user account". The roles above cover it.
+- **Search** — Search Explorer's authentication toggle has to be set to Entra, and your principal needs
+  **Search Index Data Reader** on the service to read the index:
+  ```shell
+  az role assignment create --assignee "$me" --role "Search Index Data Reader" \
+    --scope $(az search service show -g <rg-ai-...> -n <search-service-name> --query id -o tsv)
+  ```
+  Reviewing a single flagged chunk doesn't need this — that path goes through APIM (see
+  [`rag.md`](rag.md#reviewing-a-flagged-passage)).
+- **Foundry** — the account's *Keys and Endpoint* blade shows keys as disabled. The playground authenticates with
+  your Entra identity; `Cognitive Services User` on the account is what it needs.
+

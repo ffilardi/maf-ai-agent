@@ -28,6 +28,9 @@ param foundrySku string = 'S0'
 @description('Foundry kind. Defaults to AIServices.')
 param foundryKind string = 'AIServices'
 
+@description('Disable local (key-based) authentication on the Foundry account. On by default: /openai, /documentintelligence, and /contentsafety are all reached through APIM, which injects its managed identity, so an account key would only bypass the gateway\'s token limits and content-safety pre-check.')
+param disableLocalAuth bool = true
+
 @description('Model SKU for the chat model deployment. Defaults to GlobalStandard.')
 param chatModelSku string = 'GlobalStandard'
 
@@ -73,6 +76,7 @@ module foundry './resources/account.bicep' = {
       chatModel
       embeddingModel
     ]
+    disableLocalAuth: disableLocalAuth
     logAnalyticsWorkspaceId: logAnalyticsWorkspaceId
     enableVerboseLogs: enableVerboseLogs
   }

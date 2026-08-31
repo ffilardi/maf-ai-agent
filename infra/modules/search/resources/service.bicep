@@ -28,6 +28,9 @@ param publicNetworkAccess string = 'enabled'
 @description('Semantic search tier (disabled | free | standard).')
 param semanticSearch string = 'free'
 
+@description('Disable local (api-key) authentication. On by default: the backend reaches the index through APIM, which injects its managed identity. ARM rejects this together with authOptions — they are mutually exclusive.')
+param disableLocalAuth bool = true
+
 @description('Resource id of the Log Analytics workspace for diagnostic logs.')
 param logAnalyticsWorkspaceId string = ''
 
@@ -56,11 +59,14 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
     hostingMode: hostingMode
     publicNetworkAccess: publicNetworkAccess
     semanticSearch: semanticSearch
-    authOptions: {
-      aadOrApiKey: {
-        aadAuthFailureMode: 'http401WithBearerChallenge'
-      }
-    }
+    disableLocalAuth: disableLocalAuth
+    authOptions: disableLocalAuth
+      ? null
+      : {
+          aadOrApiKey: {
+            aadAuthFailureMode: 'http401WithBearerChallenge'
+          }
+        }
   }
 }
 

@@ -137,3 +137,4 @@ Cost visibility, budget alerts, and every right-sizing lever are documented in *
 - **[FinOps](./doc/finops.md)** — cost visibility, spend guardrails, and right-sizing levers built into the infrastructure
 - **[RAG Guide](./doc/rag.md)** — Azure AI Search RAG wiring, index schema, and retrieval query
 - **[Logging](./doc/logging.md)** — backend telemetry, streaming/persist error handling, and the RAG retrieval audit trail
+- **[Security](./doc/security.md)** — the accepted no-auth demo posture and the areas reviewed and found sound

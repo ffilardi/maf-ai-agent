@@ -117,6 +117,14 @@ builder.Services.AddSingleton<ChatService>(sp => new ChatService(
 
 var app = builder.Build();
 
+// Never let a browser re-sniff a response body's type. The SPA's own responses get this from the Static Web App's
+// globalHeaders; this covers everything the backend serves, attachment previews included.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    await next();
+});
+
 // Emit the X-Process-Time header; queued via OnStarting so it is written before the body flushes.
 app.Use(async (context, next) =>
 {

@@ -46,7 +46,7 @@ param embeddingModelCapacity int = 150
 var chatModel = {
   format: 'OpenAI'
   name: 'gpt-5.6-luna'
-  version: '2026-03-17'
+  version: '2026-07-09'
   sku: {
     name: chatModelSku
     capacity: chatModelCapacity

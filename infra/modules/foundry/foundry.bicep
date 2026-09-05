@@ -35,7 +35,7 @@ param disableLocalAuth bool = true
 param chatModelSku string = 'GlobalStandard'
 
 @description('GlobalStandard TPM ceiling (thousands of tokens/min) for the chat model deployment.')
-param chatModelCapacity int = 1000
+param chatModelCapacity int = 500
 
 @description('Model SKU for the embedding model deployment. Defaults to GlobalStandard.')
 param embeddingModelSku string = 'GlobalStandard'

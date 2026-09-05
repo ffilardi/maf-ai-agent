@@ -97,7 +97,7 @@ The allow-list is gateway-scope only; the Developer-SKU developer portal and man
 ```
 - **Limit:** 300 requests per minute per subscription key
 - **Renewal:** Every 60 seconds
-- **Sizing:** Kept below combined model RPM capacity (chat 6,000 + embedding 900, at Azure's 6 RPM per 1,000 TPM) as a fair-usage guard, while high enough to absorb multi-file embedding bursts
+- **Sizing:** Kept below combined model RPM capacity (chat 3,000 + embedding 900, at Azure's 6 RPM per 1,000 TPM) as a fair-usage guard, while high enough to absorb multi-file embedding bursts
 - **Purpose:** Protects backend from traffic spikes and ensures fair usage
 
 **6. Token Metrics Emission**
@@ -113,10 +113,10 @@ The allow-list is gateway-scope only; the Developer-SKU developer portal and man
 **7. Token-Based Rate Limiting**
 ```xml
 <llm-token-limit
-    tokens-per-minute="500000"
+    tokens-per-minute="250000"
     tokens-consumed-header-name="x-apim-ratelimit-consumed-tokens"
     remaining-tokens-header-name="x-apim-ratelimit-remaining-tokens"
-    token-quota="30000000"
+    token-quota="15000000"
     token-quota-period="Hourly"
     remaining-quota-tokens-header-name="x-apim-ratelimit-remaining-quota-tokens"
     counter-key="@(context.Subscription?.Key ?? "anonymous")"
@@ -125,8 +125,8 @@ The allow-list is gateway-scope only; the Developer-SKU developer portal and man
 ```
 
 **Token Limits:**
-- **TPM (Tokens Per Minute):** 500,000 tokens/minute (below combined chat 1,000,000 + embedding 150,000 model capacity)
-- **Hourly Quota:** 30,000,000 tokens/hour
+- **TPM (Tokens Per Minute):** 250,000 tokens/minute (below combined chat 500,000 + embedding 150,000 model capacity)
+- **Hourly Quota:** 15,000,000 tokens/hour
 - **Tracking:** By subscription key (matches the request-based limits above, so all throttles meter the same consumer)
 - **Prompt Estimation:** Automatically estimates prompt token count for requests
 - **Response Headers:** Includes consumption and remaining token counts

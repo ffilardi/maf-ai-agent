@@ -30,7 +30,7 @@ the Bicep defaults or passing `--parameters` to a manual `az deployment`.
 | Cost optimization | Scoped platform-log ingestion | `enableVerboseLogs` (main → APIM/Cosmos/Foundry/Search/App Service) | `true` (full logs); set `false` for metrics-only |
 | Right-sizing | Backend App Service Plan SKU | [`modules/app/app.bicep`](../infra/modules/app/app.bicep) | `Basic` / `B1` |
 | Right-sizing | Azure AI Search SKU | [`modules/search/search.bicep`](../infra/modules/search/search.bicep) | `free` (hybrid + semantic ranking) |
-| Right-sizing | Foundry model TPM capacity | [`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) | chat `1000`, embedding `150` |
+| Right-sizing | Foundry model TPM capacity | [`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) | chat `500`, embedding `150` |
 | Right-sizing | Cosmos serverless vs provisioned | [`modules/cosmosdb/resources/account.bicep`](../infra/modules/cosmosdb/resources/account.bicep) | `useServerless = false` |
 | Data lifecycle | Storage blob age-out policy | [`modules/storage/resources/account.bicep`](../infra/modules/storage/resources/account.bicep) | delete after `90` days |
 | Data lifecycle | Conversation transcript TTL | `MAX_HISTORY_TTL_DAYS` (backend) | `0` = never expire |
@@ -174,7 +174,7 @@ frontend adds no plan cost: it is an Azure **Static Web App** on the **Free** SK
 
 ### Foundry model capacity
 
-[`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) sets each deployment's **GlobalStandard capacity** (chat `1000`, embedding
+[`modules/foundry/foundry.bicep`](../infra/modules/foundry/foundry.bicep) sets each deployment's **GlobalStandard capacity** (chat `500`, embedding
 `150`). This is a per-model **TPM rate ceiling** in thousands of tokens/min, **not** a fixed charge —
 GlobalStandard bills pay-per-token — but a bounded ceiling stops a runaway-spend scenario in a demo.
 Raise per environment as throughput needs grow.

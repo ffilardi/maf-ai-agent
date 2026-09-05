@@ -277,8 +277,8 @@ APIM policies control request routing, authentication, rate limiting, and transf
 3. **Token Limiting**
 ```xml
 <llm-token-limit
-    tokens-per-minute="500000"
-    token-quota="30000000"
+    tokens-per-minute="250000"
+    token-quota="15000000"
     token-quota-period="Hourly"
 />
 ```

@@ -48,7 +48,7 @@ The agent frontend is a Vite + React (TypeScript) single-page app providing a us
 - **Managed Identity Authentication:** Passwordless authentication to Azure OpenAI using system-assigned managed identity
 - **Multi-Layered Rate Limiting:**
   - Request-based: 300 requests/minute, 18,000 requests/hour per subscription (below combined model RPM capacity)
-  - Token-based: 500,000 tokens/minute, 30M tokens/hour per subscription (below combined model TPM capacity)
+  - Token-based: 250,000 tokens/minute, 15M tokens/hour per subscription (below combined model TPM capacity)
 - **Token Metrics:** Real-time token consumption tracking and quota monitoring
 - **Subscription Key Security:** All endpoints secured via APIM subscription keys (`api-key` header/query parameter)
 - **Application Insights Integration:** Full diagnostics and logging of API calls with custom token metrics
@@ -60,7 +60,7 @@ See [APIM Policies](./apim-policies.md) for detailed policy documentation.
 ### AI Services
 
 - **AI Foundry Hub & Project:** Azure AI Foundry hub with project (`proj-{env}-01`) for AI model deployments
-- **Model Deployments:** gpt-5.4-mini and text-embedding-3-large (GlobalStandard SKUs, multiple instances for load balancing)
+- **Model Deployments:** gpt-5.6-luna and text-embedding-3-large (GlobalStandard SKUs, multiple instances for load balancing)
 - **Azure AI Search:** Free-tier search service hosting the RAG grounding index (queried by the backend's `SearchChatAttachments` tool); runs hybrid + semantic ranking in supported regions — bump `skuName` to `basic` in `infra/modules/search` for production scale/SLA
 - **Managed Identity Access:** RBAC-based access using system-assigned managed identities
 

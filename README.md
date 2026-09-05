@@ -59,7 +59,7 @@ The agent deploys two Azure AI Foundry model deployments. Quota is the per-model
 
 | Model | Deployment SKU | Quota (default) |
 | ----- | -------------- | --------------- |
-| `gpt-5.4-mini` (chat) | GlobalStandard | 1,000K TPM |
+| `gpt-5.6-luna` (chat) | GlobalStandard | 500K TPM |
 | `text-embedding-3-large` (embeddings) | GlobalStandard | 150K TPM |
 
 Swap models, versions, or capacity in [`infra/modules/foundry/foundry.bicep`](infra/modules/foundry/foundry.bicep). The list of chat models the SPA offers (and the default) is threaded through `chatModelDeployments` in [`infra/main.bicep`](infra/main.bicep).

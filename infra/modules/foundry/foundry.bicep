@@ -35,7 +35,7 @@ param disableLocalAuth bool = true
 param chatModelSku string = 'GlobalStandard'
 
 @description('GlobalStandard TPM ceiling (thousands of tokens/min) for the chat model deployment.')
-param chatModelCapacity int = 1000
+param chatModelCapacity int = 500
 
 @description('Model SKU for the embedding model deployment. Defaults to GlobalStandard.')
 param embeddingModelSku string = 'GlobalStandard'
@@ -45,8 +45,8 @@ param embeddingModelCapacity int = 150
 
 var chatModel = {
   format: 'OpenAI'
-  name: 'gpt-5.4-mini'
-  version: '2026-03-17'
+  name: 'gpt-5.6-luna'
+  version: '2026-07-09'
   sku: {
     name: chatModelSku
     capacity: chatModelCapacity

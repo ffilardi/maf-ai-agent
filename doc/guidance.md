@@ -2,7 +2,7 @@
 
 ## Region Availability
 
-This template deploys Azure AI Foundry with model a deployment (gpt-5.4-mini) which may not be available in all regions. Check the current model availability and choose a supported region:
+This template deploys Azure AI Foundry with model a deployment (gpt-5.6-luna) which may not be available in all regions. Check the current model availability and choose a supported region:
 
 - **Model availability:** <https://learn.microsoft.com/azure/ai-services/openai/concepts/models#standard-deployment-model-availability>
 - **Region selection:** Pick a region supporting "GlobalStandard" SKU for your required models
@@ -42,7 +42,7 @@ Ensure your subscription has sufficient quota for Azure OpenAI model deployments
 |----------|-------------|---------|
 | `APIM_GATEWAY_ENDPOINT` | API Management gateway URL | `https://apim-env-token.azure-api.net` |
 | `APIM_SUBSCRIPTION_KEY` | APIM subscription key | Retrieved from Key Vault |
-| `AI_MODEL_DEPLOYMENTS` | Comma-separated selectable chat models; first is the default | `gpt-5.4-mini` |
+| `AI_MODEL_DEPLOYMENTS` | Comma-separated selectable chat models; first is the default | `gpt-5.6-luna` |
 | `AGENT_INSTRUCTIONS` | Overrides the built-in default system prompt (optional) | _(built-in default)_ |
 | `EXPOSE_DEFAULT_PROMPT` | Advertise the effective base prompt on `GET /config`; `false` returns `""` (Azure sets `false`) | `true` |
 | `ALLOW_SYSTEM_PROMPT_OVERRIDE` | Honour a per-request `systemPrompt`; `false` ignores it and logs the attempt | `true` |
@@ -137,7 +137,7 @@ All services log to Application Insights with structured logging:
 
 1. **Conversation history bounding** - Two complementary layers, both set in `AgentFactory.Create`: `MAX_HISTORY_MESSAGES` caps how many messages the `CosmosChatHistoryProvider` reads per turn (Cosmos RU/latency), and an in-context compaction pipeline (`ToolResultCompactionStrategy` → `ContextWindowCompactionStrategy`, budget from `MAX_CONTEXT_WINDOW_TOKENS` − `MAX_OUTPUT_TOKENS`) trims what the model sees to control prompt size — see [`overview.md`](overview.md) › *Bounding history*
 2. **APIM caching** - Consider caching policies for frequently accessed endpoints
-3. **Model selection** - Use gpt-5.4-mini for faster, cost-effective responses when appropriate
+3. **Model selection** - Use gpt-5.6-luna for faster, cost-effective responses when appropriate
 4. **Concurrent requests** - APIM load balances across multiple model deployments
 5. **Connection pooling** - Cosmos DB client reuses connections automatically
 6. **Rate limit tuning** - Adjust APIM policy limits based on actual usage patterns:

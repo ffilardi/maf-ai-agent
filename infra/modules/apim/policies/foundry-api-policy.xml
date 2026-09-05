@@ -9,7 +9,7 @@
             <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
         </set-header>
         <set-backend-service id="__BACKEND_ID__" backend-id="__BACKEND_ID__" />
-        <!-- Gateway limits kept below the deployed models' combined capacity (chat 1,000,000 + embedding 150,000 = 1,150,000 TPM) as a
+        <!-- Gateway limits kept below the deployed models' combined capacity (chat 500,000 + embedding 150,000 = 650,000 TPM) as a
              fair-usage guard, sized to absorb multi-file embedding bursts without hitting the per-deployment ceiling. Hourly quotas = 60×
              the per-minute rate (sustained-peak-for-an-hour). Adjust to taste relative to the model capacities in foundry.bicep. -->
         <quota-by-key calls="18000" renewal-period="3600" counter-key="@(context.Subscription?.Key ?? "anonymous")" />
@@ -17,7 +17,7 @@
         <llm-emit-token-metric>
             <dimension name="API ID" />
         </llm-emit-token-metric>
-        <llm-token-limit tokens-per-minute="500000" tokens-consumed-header-name="x-apim-ratelimit-consumed-tokens" remaining-tokens-header-name="x-apim-ratelimit-remaining-tokens" token-quota="30000000" token-quota-period="Hourly" remaining-quota-tokens-header-name="x-apim-ratelimit-remaining-quota-tokens" counter-key="@(context.Subscription?.Key ?? "anonymous")" estimate-prompt-tokens="true" />
+        <llm-token-limit tokens-per-minute="250000" tokens-consumed-header-name="x-apim-ratelimit-consumed-tokens" remaining-tokens-header-name="x-apim-ratelimit-remaining-tokens" token-quota="15000000" token-quota-period="Hourly" remaining-quota-tokens-header-name="x-apim-ratelimit-remaining-quota-tokens" counter-key="@(context.Subscription?.Key ?? "anonymous")" estimate-prompt-tokens="true" />
         <!-- Optional gateway-level content-safety hard block (defense-in-depth; the backend already runs an in-app pre-check).
              To enable, uncomment and first create an APIM backend `content-safety-backend` at the Foundry account ROOT with
              Managed Identity creds (the AI Gateway "add policy → Content safety" wizard provisions it). Does not block streaming.

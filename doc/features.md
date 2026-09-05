@@ -60,7 +60,7 @@ See [APIM Policies](./apim-policies.md) for detailed policy documentation.
 ### AI Services
 
 - **AI Foundry Hub & Project:** Azure AI Foundry hub with project (`proj-{env}-01`) for AI model deployments
-- **Model Deployments:** gpt-5.4-mini and text-embedding-3-large (GlobalStandard SKUs, multiple instances for load balancing)
+- **Model Deployments:** gpt-5.6-luna and text-embedding-3-large (GlobalStandard SKUs, multiple instances for load balancing)
 - **Azure AI Search:** Free-tier search service hosting the RAG grounding index (queried by the backend's `SearchChatAttachments` tool); runs hybrid + semantic ranking in supported regions — bump `skuName` to `basic` in `infra/modules/search` for production scale/SLA
 - **Managed Identity Access:** RBAC-based access using system-assigned managed identities
 
